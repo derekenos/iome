@@ -1,0 +1,9 @@
+[submodule "lib/femtoweb"]
+	path = dev_kits/v1/filesystem/lib/femtoweb
+	url = git@github.com:derekenos/femtoweb
+[submodule "micropython-docker"]
+	path = dev_kits/v1/micropython-docker
+	url = git@github.com:derekenos/micropython-docker
+[submodule "dev_kits/v1/filesystem/public"]
+	path = dev_kits/v1/filesystem/public
+	url = git@github.com:derekenos/iome-public
