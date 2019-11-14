@@ -1,24 +1,16 @@
 
-import gc
-import json
-import os
-from binascii import hexlify
-from uwebsocket import websocket
 import machine
-from machine import (
-    ADC,
-    Pin,
-    Timer,
-)
+import math
+from machine import Pin
 from utime import (
     sleep_ms,
     sleep_us,
 )
 
-import config
 from lib.femtoweb import default_http_endpoints
 from lib.femtoweb.server import (
     _200,
+    _400,
     GET,
     POST,
     as_json,
@@ -34,67 +26,73 @@ from lib.femtoweb.server import (
 
 X = 0
 Y = 1
-DIR_UP = 0
-DIR_DOWN = 1
-DIR_LEFT = 1
-DIR_RIGHT = 0
-X_MAX = 680
+DIR_UP = 1
+DIR_DOWN = 0
+DIR_LEFT = 0
+DIR_RIGHT = 1
+X_MAX = 880
 Y_MAX = 680
-X_MIN_USABLE = 40
-Y_MIN_USABLE = 40
-X_MAX_USABLE = 640
-Y_MAX_USABLE = 640
 
-CHARS = [
-    [(0, 0), (0, 1), (1, 1), (1, 2), (0, 2), (0, 5), (2, 5), (2, 4), (1, 4),
-     (1, 3), (2, 3), (2, 0), (0, 0)],
-    [(3, 0), (3, 5), (4, 5), (4, 3), (5, 4), (5, 5), (6, 5), (6, 4), (4, 2),
-     (6, 1), (6, 0), (5, 0), (4, 1), (4, 0), (3, 0)],
-    [(7, 0), (7, 5), (9, 5), (9, 4), (8, 4), (8, 3), (9, 3), (9, 2), (8, 2),
-     (8, 1), (9, 1), (9, 0), (7, 0)],
-    [(11, 0), (11, 4), (10, 4), (10, 5), (13, 5), (13, 4), (12, 4), (12, 0),
-     (11, 0)],
-    [(14, 0), (14, 5), (16, 5), (16, 4), (15, 4), (15, 1), (16, 1), (16, 0),
-     (14, 0)],
-    [(17, 0), (17, 5), (18, 5), (18, 3), (19, 3), (19, 5), (20, 5), (20, 0),
-     (19, 0), (19, 2), (18, 2), (18, 0), (17, 0), (18, 0), (18, 2), (19, 2),
-     (19, 0)],
-    [(23, 0), (23, 3), (21, 4), (21, 5), (22, 5), (23, 4), (23, 5), (24, 5),
-     (24, 0), (23, 0)],
-]
+CHARS = {
+    'S': [
+        (0, 0), (0, 1), (1, 1), (1, 2), (0, 2), (0, 5), (2, 5), (2, 4),
+        (1, 4), (1, 3), (2, 3), (2, 0), (0, 0), (2, 0)
+    ],
+    'K': [
+        (0, 0), (0, 5), (1, 5), (1, 3), (2, 4), (2, 5), (3, 5), (3, 4), (1, 2),
+        (3, 1), (3, 0), (2, 0), (1, 1), (1, 0), (0, 0), (3, 0)
+    ],
+    'E': [
+        (0, 0), (0, 5), (2, 5), (2, 4), (1, 4), (1, 3), (2, 3), (2, 2), (1, 2),
+        (1, 1), (2, 1), (2, 0), (0, 0), (2, 0)
+    ],
+    'T': [
+        (1, 0), (1, 4), (0, 4), (0, 5), (3, 5), (3, 4), (2, 4), (2, 0), (1, 0),
+        (3, 0)
+    ],
+    'C': [
+        (0, 0), (0, 5), (2, 5), (2, 4), (1, 4), (1, 1), (2, 1), (2, 0), (0, 0),
+        (2, 0)
+    ],
+    'H': [
+        (0, 0), (0, 5), (1, 5), (1, 3), (2, 3), (2, 5), (3, 5), (3, 0), (2, 0),
+        (2, 2), (1, 2), (1, 0), (0, 0), (1, 0), (1, 2), (2, 2), (2, 0)
+    ],
+    'Y': [
+        (2, 0), (2, 3), (0, 4), (0, 5), (1, 5), (2, 4), (2, 5), (3, 5), (3, 0),
+        (2, 0), (3, 0)
+    ],
+}
 
-Y_not_enable_pin = Pin(25, Pin.OUT)
-Y_not_enable_pin.value(0)
 
-Y_not_reset_pin = Pin(26, Pin.OUT)
-Y_not_reset_pin.value(1)
+STEPPER_NOT_ENABLE_PIN = Pin(13, Pin.OUT)
+STEPPER_NOT_ENABLE_PIN.value(1)
 
-Y_dir_pin = Pin(33, Pin.OUT)
-Y_dir_pin.value(1)
+STEPPER_X_STEP_PIN = Pin(15, Pin.OUT)
+STEPPER_X_STEP_PIN.value(0)
 
-Y_step_pin = Pin(32, Pin.OUT)
-Y_step_pin.value(0)
+STEPPER_X_DIR_PIN = Pin(2, Pin.OUT)
+STEPPER_X_DIR_PIN.value(1)
 
-X_not_enable_pin = Pin(22, Pin.OUT)
-X_not_enable_pin.value(0)
+STEPPER_Y_STEP_PIN = Pin(4, Pin.OUT)
+STEPPER_Y_STEP_PIN.value(0)
 
-X_not_reset_pin = Pin(19, Pin.OUT)
-X_not_reset_pin.value(1)
+STEPPER_Y_DIR_PIN = Pin(0, Pin.OUT)
+STEPPER_Y_DIR_PIN.value(1)
 
-X_dir_pin = Pin(18, Pin.OUT)
-X_dir_pin.value(1)
-
-X_step_pin = Pin(23, Pin.OUT)
-X_step_pin.value(0)
 
 x_pos = 0
 y_pos = 0
 
 
-def draw_character(char, y_offset=0):
+enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
+disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
+
+
+def draw_character(char, scale=25):
     for x, y in char:
-        x = x * 25 + 40
-        y = y * 25 + 40 + y_offset
+        x = x * scale
+        y = y * scale
         move_to_point(x, y)
 
 
@@ -110,8 +108,8 @@ def step(axis, direction):
             if x_pos == X_MAX:
                 return False
             x_pos += 1
-        dir_pin = X_dir_pin
-        step_pin = X_step_pin
+        step_pin = STEPPER_X_STEP_PIN
+        dir_pin = STEPPER_X_DIR_PIN
     else:
         if direction == DIR_DOWN:
             if y_pos == 0:
@@ -121,10 +119,10 @@ def step(axis, direction):
             if y_pos == Y_MAX:
                 return False
             y_pos += 1
-        dir_pin = Y_dir_pin
-        step_pin = Y_step_pin
+        step_pin = STEPPER_Y_STEP_PIN
+        dir_pin = STEPPER_Y_DIR_PIN
 
-    dir_pin.value(direction)
+    dir_pin(direction)
     step_pin.value(1)
     sleep_us(1)
     step_pin.value(0)
@@ -132,10 +130,23 @@ def step(axis, direction):
     return True
 
 
+def multi_step(axis, direction, num_steps):
+    enable_steppers()
+    while num_steps:
+        step(axis, direction)
+        sleep_ms(3)
+        num_steps -= 1
+    disable_steppers()
+
+
 def step_toward_point(x, y):
     """Maybe step toward the specified point and return a boolean indicating
     whether a step was actually taken.
     """
+    assert x <= X_MAX and y <= Y_MAX
+    # Discard any specified fractional component.
+    x = math.floor(x)
+    y = math.floor(y)
     if x == x_pos and y == y_pos:
         return False
     if x < x_pos:
@@ -150,93 +161,82 @@ def step_toward_point(x, y):
 
 
 def move_to_point(x, y):
+    enable_steppers()
     while step_toward_point(x, y):
         sleep_ms(3)
+    disable_steppers()
 
 
 ###############################################################################
 # Route Handlers
 ###############################################################################
 
-@route('/')
-def index(request, methods=(GET,)):
-    return default_http_endpoints._fs_GET('/public/index.html')
+@route('/demo', methods=(GET,))
+def _demo(request):
+    scale = int(request.query.get('scale', 25))
+    x_offset = 0
+    for c in 'SKETCHY':
+        coords = CHARS[c]
+        draw_character([(x + x_offset, y) for x, y in coords], scale)
+        x_offset += max(x for x, _ in coords) + 1
+    return _200()
 
 
-def websocket_server_handshake(request):
-    """ Adapated from the websocket_helper.py:
-    https://github.com/micropython/webrepl/blob/master/websocket_helper.py
-    """
-    import hashlib
-    import binascii
-    webkey = request.headers.get('Sec-WebSocket-Key')
-    if not webkey:
-        raise OSError("Not a websocket request")
-    respkey = bytes(webkey, 'ascii') + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-    respkey = hashlib.sha1(respkey).digest()
-    respkey = binascii.b2a_base64(respkey)[:-1]
-    resp = b"""\
-HTTP/1.1 101 Switching Protocols\r
-Upgrade: websocket\r
-Connection: Upgrade\r
-Sec-WebSocket-Accept: %s\r
-\r
-""" % respkey
-    request.connection.send(resp)
+@route('/move_to_point', methods=(GET,))
+def _move_to_point(request):
+    x = request.query.get('x')
+    y = request.query.get('y')
+    try:
+        x = int(x)
+        y = int(y)
+    except ValueError:
+        return _400('"x" and "y" params must be ints, got: "{}", "{}"'
+                    .format(x, y))
+    move_to_point(x, y)
+    return _200()
 
 
-_active_input_conn = None
-@route('/input', methods=(GET,))
-def input(request):
-    global _active_input_conn
-    global _input_callback_timer
+@route('/multi_step', methods=(GET,))
+def _multi_step(request):
+    # Validate and convert the query params.
+    params = {
+        'axis': request.query.get('axis'),
+        'direction': request.query.get('direction'),
+        'num_steps': request.query.get('num_steps')
+    }
+    bad_params = {}
+    if params['axis'] not in ('x', 'y'):
+        bad_params['axis'] = params['axis']
+    elif params['axis'] == 'x':
+        if params['direction'] not in ('left', 'right'):
+            bad_params['direction'] = params['direction']
+    elif params['direction'] not in ('up', 'down'):
+        bad_params['direction'] = params['direction']
+    try:
+        params['num_steps'] = int(params['num_steps'])
+    except (TypeError, ValueError):
+        bad_params['num_steps'] = params['num_steps']
+    if bad_params:
+        return _400('Invalid params: {}'.format(bad_params))
 
-    if _active_input_conn is not None:
-        _active_input_conn.close()
-
-    conn = request.connection
-    _active_input_conn = conn
-
-    websocket_server_handshake(request)
-    ws = websocket(conn, True)
-
-    def callback(timer):
-        updated, inputs = read_inputs()
-        # TODO
-        # Make only-send-on-updated dependent on whether the game server is
-        # acting as an access point. In station mode, always sending regardless
-        # of updated state seems to result in more consistent latency - I
-        # suspect because the router sees it as a squeaky data wheel, and
-        # thusly greases it.
-        try:
-            ws.write(json.dumps(inputs))
-        except:
-            conn.close()
-            timer.deinit()
-            return None
-
-        timer.init(period=20, mode=Timer.ONE_SHOT, callback=callback)
-        gc.collect()
-
-    callback(Timer(-1))
+    axis = X if params['axis'] == 'x' else Y
+    direction={
+        'up': DIR_UP,
+        'down': DIR_DOWN,
+        'left': DIR_LEFT,
+        'right': DIR_RIGHT
+        }[params['direction']]
+    multi_step(axis, direction, params['num_steps'])
+    return _200()
 
 
-@route('/_status', methods=(GET,))
+@route('/status', methods=(GET,))
 @as_json
 def _status(request):
-    uname = os.uname()
     data = {
-        'MicroPython': {
-            'Release': uname.release,
-            'version': uname.version,
-            'mem_free': gc.mem_free(),
-        },
-        'Machine': {
-            'Unique ID': hexlify(machine.unique_id()),
-            'Frequency (Hz)': machine.freq(),
-        }
+        'max_position': [X_MAX, Y_MAX],
+        'current_position': [x_pos, y_pos],
     }
-
     return _200(body=data)
 
 
@@ -247,17 +247,6 @@ def _reset(request):
     # Manually send the response prior to calling machine.reset
     send(request.connection, _200())
     machine.reset()
-
-
-@route('/_config', methods=(GET,))
-@as_json
-def _config_GET(request):
-    return _200(body=config._config)
-
-
-@route('.*', methods=(GET,))
-def apps(request):
-    return default_http_endpoints._fs_GET('/public{}'.format(request.path))
 
 
 if __name__ == '__main__':
