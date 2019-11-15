@@ -7,3 +7,9 @@
 [submodule "dev_kits/v1/filesystem/public"]
 	path = dev_kits/v1/filesystem/public
 	url = https://github.com/derekenos/iome-public.git
+[submodule "appliances/sketchy/filesystem/lib/femtoweb"]
+	path = appliances/sketchy/filesystem/lib/femtoweb
+	url = https://github.com/derekenos/femtoweb.git
+[submodule "appliances/sketchy/filesystem/public"]
+	path = appliances/sketchy/filesystem/public
+	url = https://github.com/derekenos/iome-public.git
