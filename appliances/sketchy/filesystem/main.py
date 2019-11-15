@@ -124,7 +124,7 @@ def step(axis, direction):
         step_pin = STEPPER_Y_STEP_PIN
         dir_pin = STEPPER_Y_DIR_PIN
 
-    dir_pin(direction)
+    dir_pin(0 if direction in (DIR_DOWN, DIR_LEFT) else 1)
     step_pin.value(1)
     sleep_us(1)
     step_pin.value(0)
@@ -184,16 +184,11 @@ def _demo(request):
     return _200()
 
 
-@route('/move_to_point', methods=(GET,))
-def _move_to_point(request):
-    x = request.query.get('x')
-    y = request.query.get('y')
-    try:
-        x = int(x)
-        y = int(y)
-    except ValueError:
-        return _400('"x" and "y" params must be ints, got: "{}", "{}"'
-                    .format(x, y))
+@route('/move_to_point', methods=(GET,), query_param_parser_map={
+    'x': as_type(int),
+    'y': as_type(int),
+})
+def _move_to_point(request, x, y):
     move_to_point(x, y)
     return _200()
 
