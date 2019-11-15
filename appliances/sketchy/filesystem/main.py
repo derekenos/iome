@@ -13,7 +13,9 @@ from lib.femtoweb.server import (
     _400,
     GET,
     POST,
+    as_choice,
     as_json,
+    as_type,
     route,
     send,
     serve,
@@ -24,12 +26,12 @@ from lib.femtoweb.server import (
 # Stepper Motor Control
 ###############################################################################
 
-X = 0
-Y = 1
-DIR_UP = 1
-DIR_DOWN = 0
-DIR_LEFT = 0
-DIR_RIGHT = 1
+X = 'x'
+Y = 'y'
+DIR_UP = 'up'
+DIR_DOWN = 'down'
+DIR_LEFT = 'left'
+DIR_RIGHT = 'right'
 X_MAX = 880
 Y_MAX = 680
 
@@ -196,37 +198,13 @@ def _move_to_point(request):
     return _200()
 
 
-@route('/multi_step', methods=(GET,))
-def _multi_step(request):
-    # Validate and convert the query params.
-    params = {
-        'axis': request.query.get('axis'),
-        'direction': request.query.get('direction'),
-        'num_steps': request.query.get('num_steps')
-    }
-    bad_params = {}
-    if params['axis'] not in ('x', 'y'):
-        bad_params['axis'] = params['axis']
-    elif params['axis'] == 'x':
-        if params['direction'] not in ('left', 'right'):
-            bad_params['direction'] = params['direction']
-    elif params['direction'] not in ('up', 'down'):
-        bad_params['direction'] = params['direction']
-    try:
-        params['num_steps'] = int(params['num_steps'])
-    except (TypeError, ValueError):
-        bad_params['num_steps'] = params['num_steps']
-    if bad_params:
-        return _400('Invalid params: {}'.format(bad_params))
-
-    axis = X if params['axis'] == 'x' else Y
-    direction={
-        'up': DIR_UP,
-        'down': DIR_DOWN,
-        'left': DIR_LEFT,
-        'right': DIR_RIGHT
-        }[params['direction']]
-    multi_step(axis, direction, params['num_steps'])
+@route('/multi_step', methods=(GET,), query_param_parser_map={
+    'axis': as_choice(X, Y),
+    'direction': as_choice(DIR_UP, DIR_DOWN, DIR_LEFT, DIR_RIGHT),
+    'num_steps': as_type(int),
+})
+def _multi_step(request, axis, direction, num_steps):
+    multi_step(axis, direction, num_steps)
     return _200()
 
 
