@@ -141,30 +141,44 @@ def multi_step(axis, direction, num_steps):
     disable_steppers()
 
 
-def step_toward_point(x, y):
-    """Maybe step toward the specified point and return a boolean indicating
-    whether a step was actually taken.
-    """
-    assert x <= X_MAX and y <= Y_MAX
-    # Discard any specified fractional component.
-    x = math.floor(x)
-    y = math.floor(y)
-    if x == x_pos and y == y_pos:
-        return False
-    if x < x_pos:
-        step(X, DIR_LEFT)
-    elif x > x_pos:
-        step(X, DIR_RIGHT)
-    if y < y_pos:
-        step(Y, DIR_DOWN)
-    elif y > y_pos:
-        step(Y, DIR_UP)
-    return True
-
-
 def move_to_point(x, y):
+    global x_pos
+    global y_pos
+
+    if x > X_MAX or y > Y_MAX:
+        raise AssertionError('x,y max is {},{}, got {},{}'.format(
+            X_MAX, Y_MAX, x, y))
+
+    # Discard any specified fractional component and calculate deltas.
+    x_delta = math.floor(x) - x_pos
+    y_delta = math.floor(y) - y_pos
+
+    # Plan a linear path.
+    max_delta = max(abs(x_delta), abs(y_delta))
+    x_step_size = x_delta / max_delta
+    y_step_size = y_delta / max_delta
+    x_pos_acc = x_pos
+    y_pos_acc = y_pos
+
     enable_steppers()
-    while step_toward_point(x, y):
+    while x_pos != x and y_pos != y:
+        x_pos_acc += x_step_size
+        y_pos_acc += y_step_size
+        x_pos_acc_floor = math.floor(x_pos_acc)
+        y_pos_acc_floor = math.floor(y_pos_acc)
+
+        if x_pos_acc_floor != x_pos:
+            if x_pos_acc_floor < x_pos:
+                step(X, DIR_LEFT)
+            elif x_pos_acc_floor > x_pos:
+                step(X, DIR_RIGHT)
+
+        if y_pos_acc_floor != y_pos:
+            if y_pos_acc_floor < y_pos:
+                step(Y, DIR_DOWN)
+            elif y_pos_acc_floor > y_pos:
+                step(Y, DIR_UP)
+
         sleep_ms(3)
     disable_steppers()
 
@@ -207,8 +221,14 @@ def _multi_step(request, axis, direction, num_steps):
 @as_json
 def _status(request):
     data = {
-        'max_position': [X_MAX, Y_MAX],
-        'current_position': [x_pos, y_pos],
+        'max_position': {
+            'x': X_MAX,
+            'y': Y_MAX
+        },
+        'current_position': {
+            'x': x_pos,
+            'y': y_pos
+        },
     }
     return _200(body=data)
 
@@ -220,6 +240,11 @@ def _reset(request):
     # Manually send the response prior to calling machine.reset
     send(request.connection, _200())
     machine.reset()
+
+
+@route('/', methods=(GET,))
+def index(request):
+    return default_http_endpoints._fs_GET('/public/index.html')
 
 
 if __name__ == '__main__':
