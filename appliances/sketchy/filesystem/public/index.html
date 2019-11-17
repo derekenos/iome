@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+
+<html>
+
+  <head>
+
+    <style>
+      #canvas {
+        background-color: #888;
+        cursor: crosshair;
+      }
+    </style>
+
+    <script>
+      function init () {
+        const canvas = document.getElementById("canvas")
+        const ctx = canvas.getContext('2d')
+        let xMax, yMax
+
+        ctx.lineWidth = 1
+        ctx.strokeStyle = "#000"
+
+        canvas.addEventListener("click", e => {
+          const el = e.target
+          const canvasX = e.pageX - el.offsetLeft
+          const canvasY = e.pageY - el.offsetTop
+          const deviceX = canvasX
+          const deviceY = yMax - canvasY
+          ctx.lineTo(canvasX, canvasY)
+          ctx.stroke()
+          fetch(`/move_to_point?x=${deviceX}&y=${deviceY}`)
+        })
+
+        // Read the max X/Y coordinates from the device and size the canvas.
+        fetch('/status').then(
+          response => response.json().then(
+            data => {
+              xMax = data.max_position.x
+              yMax = data.max_position.y
+              canvas.width = xMax
+              canvas.height = yMax
+              ctx.beginPath()
+              ctx.moveTo(0, yMax)
+            }
+          )
+        )
+
+      }
+
+      document.addEventListener("DOMContentLoaded", init)
+
+    </script>
+
+  </head>
+
+  <body>
+    <canvas id="canvas" width="0", height="0"></canvas>
+  </body>
+
+</html>
