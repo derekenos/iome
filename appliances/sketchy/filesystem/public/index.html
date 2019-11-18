@@ -20,7 +20,29 @@
         ctx.lineWidth = 1
         ctx.strokeStyle = "#000"
 
-        canvas.addEventListener("click", e => {
+        // canvas.addEventListener("click", e => {
+        //   const el = e.target
+        //   const canvasX = e.pageX - el.offsetLeft
+        //   const canvasY = e.pageY - el.offsetTop
+        //   const deviceX = canvasX
+        //   const deviceY = yMax - canvasY
+        //   ctx.lineTo(canvasX, canvasY)
+        //   ctx.stroke()
+        //   fetch(`/move_to_point?x=${deviceX}&y=${deviceY}`)
+        // })
+
+        const ws = new WebSocket(`ws://${window.location.host}/draw`)
+        let lastMoveTs = undefined
+        const MIN_DELTA_MS = 100
+        function moveEventHandler(e) {
+          if (e.buttons !== 1) {
+            return
+          }
+          if (lastMoveTs !== undefined &&
+              e.timeStamp - lastMoveTs < MIN_DELTA_MS) {
+            return
+          }
+
           const el = e.target
           const canvasX = e.pageX - el.offsetLeft
           const canvasY = e.pageY - el.offsetTop
@@ -28,8 +50,16 @@
           const deviceY = yMax - canvasY
           ctx.lineTo(canvasX, canvasY)
           ctx.stroke()
-          fetch(`/move_to_point?x=${deviceX}&y=${deviceY}`)
-        })
+          const payload = JSON.stringify([deviceX, deviceY])
+          ws.send(JSON.stringify(payload.length) + payload)
+
+          console.log(payload)
+
+          lastMoveTs = e.timeStamp
+        }
+
+        canvas.addEventListener('mousemove', moveEventHandler)
+        canvas.addEventListener('touchmove', moveEventHandler)
 
         // Read the max X/Y coordinates from the device and size the canvas.
         fetch('/status').then(

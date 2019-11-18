@@ -1,7 +1,12 @@
 
+import json
 import machine
 import math
-from machine import Pin
+from collections import deque
+from machine import (
+    Pin,
+    Timer,
+)
 from utime import (
     sleep_ms,
     sleep_us,
@@ -16,6 +21,7 @@ from lib.femtoweb.server import (
     as_choice,
     as_json,
     as_type,
+    as_websocket,
     route,
     send,
     serve,
@@ -141,9 +147,12 @@ def multi_step(axis, direction, num_steps):
     disable_steppers()
 
 
+is_moving_to_point = False
+
 def move_to_point(x, y):
     global x_pos
     global y_pos
+    global is_moving_to_point
 
     if x > X_MAX or y > Y_MAX:
         raise AssertionError('x,y max is {},{}, got {},{}'.format(
@@ -155,37 +164,73 @@ def move_to_point(x, y):
 
     # Plan a linear path.
     max_delta = max(abs(x_delta), abs(y_delta))
-    x_step_size = x_delta / max_delta
-    y_step_size = y_delta / max_delta
-    x_pos_acc = x_pos
-    y_pos_acc = y_pos
+    if max_delta == 0:
+        return
+    x_acc_step_size = x_delta / max_delta
+    y_acc_step_size = y_delta / max_delta
+    x_acc = 0
+    y_acc = 0
 
     enable_steppers()
-    while x_pos != x and y_pos != y:
-        x_pos_acc += x_step_size
-        y_pos_acc += y_step_size
-        x_pos_acc_floor = math.floor(x_pos_acc)
-        y_pos_acc_floor = math.floor(y_pos_acc)
+    while x_pos != x or y_pos != y:
+        is_moving_to_point = True
 
-        if x_pos_acc_floor != x_pos:
-            if x_pos_acc_floor < x_pos:
-                step(X, DIR_LEFT)
-            elif x_pos_acc_floor > x_pos:
-                step(X, DIR_RIGHT)
+        if x_acc_step_size != 0 and x_pos != x:
+            last_x_acc = x_acc
+            x_acc += x_acc_step_size
+            if math.floor(x_acc) != math.floor(last_x_acc):
+                if x_acc_step_size < 0:
+                    step(X, DIR_LEFT)
+                elif x_acc_step_size > 0:
+                    step(X, DIR_RIGHT)
 
-        if y_pos_acc_floor != y_pos:
-            if y_pos_acc_floor < y_pos:
-                step(Y, DIR_DOWN)
-            elif y_pos_acc_floor > y_pos:
-                step(Y, DIR_UP)
+        if y_acc_step_size != 0 and y_pos != y:
+            last_y_acc = y_acc
+            y_acc += y_acc_step_size
+            if math.floor(y_acc) != math.floor(last_y_acc):
+                if y_acc_step_size < 0:
+                    step(Y, DIR_DOWN)
+                elif y_acc_step_size > 0:
+                    step(Y, DIR_UP)
 
         sleep_ms(3)
+    is_moving_to_point = False
     disable_steppers()
 
 
 ###############################################################################
 # Route Handlers
 ###############################################################################
+
+@route('/_reset', methods=(GET, POST))
+def _reset(request):
+    """Reset the device.
+    """
+    # Manually send the response prior to calling machine.reset
+    send(request.connection, _200())
+    machine.reset()
+
+
+@route('/status', methods=(GET,))
+@as_json
+def _status(request):
+    data = {
+        'max_position': {
+            'x': X_MAX,
+            'y': Y_MAX
+        },
+        'current_position': {
+            'x': x_pos,
+            'y': y_pos
+        },
+    }
+    return _200(body=data)
+
+
+@route('/', methods=(GET,))
+def index(request):
+    return default_http_endpoints._fs_GET('/public/index.html')
+
 
 @route('/demo', methods=(GET,))
 def _demo(request):
@@ -217,34 +262,23 @@ def _multi_step(request, axis, direction, num_steps):
     return _200()
 
 
-@route('/status', methods=(GET,))
-@as_json
-def _status(request):
-    data = {
-        'max_position': {
-            'x': X_MAX,
-            'y': Y_MAX
-        },
-        'current_position': {
-            'x': x_pos,
-            'y': y_pos
-        },
-    }
-    return _200(body=data)
+_draw_dq = deque((), 512)
+@route('/draw', methods=(GET,))
+@as_websocket
+def _draw(request, ws):
+    def callback(timer):
+        global _draw_dq
+        payload_len = ws.read(1)
+        if payload_len is not None:
+            x, y = map(int, json.loads(ws.read(int(payload_len))))
+            _draw_dq.append((x, y))
 
+        if not is_moving_to_point and _draw_dq:
+            x, y = _draw_dq.popleft()
+            move_to_point(x, y)
 
-@route('/_reset', methods=(GET, POST))
-def _reset(request):
-    """Reset the device.
-    """
-    # Manually send the response prior to calling machine.reset
-    send(request.connection, _200())
-    machine.reset()
-
-
-@route('/', methods=(GET,))
-def index(request):
-    return default_http_endpoints._fs_GET('/public/index.html')
+        timer.init(period=20, mode=Timer.ONE_SHOT, callback=callback)
+    callback(Timer(-1))
 
 
 if __name__ == '__main__':
