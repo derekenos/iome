@@ -404,9 +404,11 @@ def _home(request):
     return _200()
 
 
-@route('/demo_svg', methods=(GET,))
-def _demo_svg(request):
-    fh = open('/test.svg', 'r')
+@route('/demo_svg', methods=(GET,), query_param_parser_map={
+    'filename': as_type(str)
+})
+def _demo_svg(request, filename):
+    fh = open(filename, 'r')
     render_svg(fh)
     return _200()
 
