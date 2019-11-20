@@ -231,6 +231,7 @@ def render_svg(fh):
     g_translates = []
     translate = (0, 0)
     open_tags = []
+    first_path_point = None
     relative_reference = (0, 0)
 
     for token in xmltok.tokenize(fh):
@@ -239,6 +240,8 @@ def render_svg(fh):
             open_tags.append(tag)
             if tag == 'g':
                 g_translates.append((0, 0))
+            elif tag == 'path':
+                first_path_point = None
 
         elif token[0] == 'END_TAG':
             tag = token[1][1]
@@ -284,19 +287,31 @@ def render_svg(fh):
             for s in v.split():
                 match = PATH_COORD_REGEX.match(s)
                 if not match:
-                    if s == 'z':
-                        relative_reference = (0, 0)
-                        is_relative = False
-                    else:
+                    if s != 'z':
                         is_relative = s.islower()
-                    continue
-                x = math.floor(float(match.group(1)))
-                y = math.floor(float(match.group(2)))
+                        continue
+                    else:
+                        # Close the path.
+                        is_relative = False
+                        relative_reference = (0, 0)
+                        x, y = first_path_point
+                else:
+                    x = math.floor(float(match.group(1)))
+                    y = math.floor(float(match.group(2)))
+
+                if first_path_point is None:
+                    first_path_point = (x, y)
+
                 if is_relative:
                     rel_x, rel_y = relative_reference
                     x += rel_x
                     y += rel_y
-                relative_reference = x, y
+
+                # Set the current point as the relative reference if not
+                # closing the path.
+                if s != 'z':
+                    relative_reference = x, y
+
                 # Apply the current cumulative translations.
                 x += math.floor(translate[0])
                 y += math.floor(translate[1])
