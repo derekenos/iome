@@ -199,6 +199,112 @@ def move_to_point(x, y):
 
 
 ###############################################################################
+# SVG Parser
+###############################################################################
+
+def render_svg(fh):
+    # TODO - move import to top of module.
+    # Install xmltok if necessary.
+    try:
+        import xmltok
+    except ImportError:
+        import upip
+        upip.install('xmltok')
+    import re
+
+    width = None
+    width_unit = None
+    height = None
+    height_unit = None
+    scale = None
+
+    NUMBER_UNIT_REGEX = re.compile('^(\d+)(.*)$')
+    parse_number_unit = lambda s: NUMBER_UNIT_REGEX.match(s)
+
+    FLOAT_RE_PATTERN = '\-?\d+(?:\.\d+)?'
+    PATH_COORD_REGEX = re.compile('({0}),({0})'.format(FLOAT_RE_PATTERN))
+
+    TRANSLATE_REGEX = re.compile(
+        'translate\(({0}),({0})\)'.format(FLOAT_RE_PATTERN)
+    )
+
+    g_translates = []
+    translate = (0, 0)
+    open_tags = []
+    relative_reference = (0, 0)
+
+    for token in xmltok.tokenize(fh):
+        if token[0] == 'START_TAG':
+            tag = token[1][1]
+            open_tags.append(tag)
+            if tag == 'g':
+                g_translates.append((0, 0))
+
+        elif token[0] == 'END_TAG':
+            tag = token[1][1]
+            open_tags.pop()
+            if tag == 'g':
+                x, y = g_translates.pop()
+                translate = translate[0] - x, translate[1] - y
+
+        if token[0] != 'ATTR':
+            continue
+        (_, k), v = token[1:]
+
+        if k == 'height':
+            match = parse_number_unit(v)
+            height = float(match.group(1))
+            height_unit = match.group(2)
+
+        elif k == 'width':
+            match = parse_number_unit(v)
+            width = float(match.group(1))
+            width_unit = match.group(2)
+
+        elif k == 'transform' and open_tags[-1] == 'g':
+            match = TRANSLATE_REGEX.match(v)
+            if match:
+                x = float(match.group(1))
+                y = float(match.group(2))
+                g_translates[-1] = x, y
+                translate = translate[0] + x, translate[1] + y
+
+        elif k == 'd':
+            if not width or not height:
+                raise AssertionError(
+                    'about to parse path but height and/or width not '
+                    'set: {}/{}'.format(width, height))
+            elif width_unit != height_unit:
+                raise AssertionError('Different width/height units: {}/{}'
+                                     .format(width_unit, height_unit))
+            elif scale is None:
+                scale = math.floor(max(X_MAX, Y_MAX) / max(width, height))
+
+            is_relative = False
+            for s in v.split():
+                match = PATH_COORD_REGEX.match(s)
+                if not match:
+                    if s == 'z':
+                        relative_reference = (0, 0)
+                        is_relative = False
+                    else:
+                        is_relative = s.islower()
+                    continue
+                x = math.floor(float(match.group(1)))
+                y = math.floor(float(match.group(2)))
+                if is_relative:
+                    rel_x, rel_y = relative_reference
+                    x += rel_x
+                    y += rel_y
+                relative_reference = x, y
+                # Apply the current cumulative translations.
+                x += math.floor(translate[0])
+                y += math.floor(translate[1])
+                # Invert the y axis.
+                move_to_point(x, Y_MAX - y)
+
+
+###############################################################################
 # Route Handlers
 ###############################################################################
 
@@ -279,6 +385,30 @@ def _draw(request, ws):
 
         timer.init(period=20, mode=Timer.ONE_SHOT, callback=callback)
     callback(Timer(-1))
+
+
+@route('/home', methods=(GET,))
+def _home(request):
+    """Force it to the home position by setting x_pos and y_pos to their max
+    values, moving to point 0,0, and then back up 20 steps to reach the usable
+    region.
+    """
+    global x_pos
+    global y_pos
+    x_pos = X_MAX
+    y_pos = Y_MAX
+    move_to_point(0, 0)
+    move_to_point(20, 20)
+    x_pos = 0
+    y_pos = 0
+    return _200()
+
+
+@route('/demo_svg', methods=(GET,))
+def _demo_svg(request):
+    fh = open('/test.svg', 'r')
+    render_svg(fh)
+    return _200()
 
 
 if __name__ == '__main__':
