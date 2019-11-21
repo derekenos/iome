@@ -50,3 +50,12 @@ The default configuration [creates an Access Point on boot](https://github.com/d
 ![all_in_one_20191010_bw](https://user-images.githubusercontent.com/585182/66948574-f74bb900-f022-11e9-9d6a-b5a0445ed567.png)
 
 This first development kit features a familiar household rotary push-button dimmer knob as its primary physical input and three [living hinge](https://en.wikipedia.org/wiki/Living_hinge) tactile switch buttons (labelled 1, 2, 3). It employs the popular, low-cost ESP32 running Micropython as the brains of the operation.
+
+## [Sketchy](https://github.com/derekenos/iome/tree/master/appliances/sketchy)
+
+<a href="https://github.com/derekenos/iome/tree/master/appliances/sketchy">
+  <img src="https://user-images.githubusercontent.com/585182/69062387-d80cc680-09e8-11ea-82ab-671f9070fd5e.png" alt="sketchy prototype" width="560" />
+</a>
+
+Sketchy is a motorized Etch A Sketch display appliance.
+
