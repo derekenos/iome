@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+
+<html>
+
+  <head>
+
+    <style>
+      #canvas {
+        background-color: #888;
+        cursor: crosshair;
+      }
+    </style>
+
+    <script>
+      function init () {
+        const canvas = document.getElementById("canvas")
+        const ctx = canvas.getContext('2d')
+        let xMax, yMax
+
+        ctx.lineWidth = 1
+        ctx.strokeStyle = "#000"
+
+        // canvas.addEventListener("click", e => {
+        //   const el = e.target
+        //   const canvasX = e.pageX - el.offsetLeft
+        //   const canvasY = e.pageY - el.offsetTop
+        //   const deviceX = canvasX
+        //   const deviceY = yMax - canvasY
+        //   ctx.lineTo(canvasX, canvasY)
+        //   ctx.stroke()
+        //   fetch(`/move_to_point?x=${deviceX}&y=${deviceY}`)
+        // })
+
+        const ws = new WebSocket(`ws://${window.location.host}/draw`)
+        let lastMoveTs = undefined
+        const MIN_DELTA_MS = 100
+        function moveEventHandler(e) {
+          e.preventDefault()
+
+          let pageX, pageY
+          if (e.hasOwnProperty("changedTouches")) {
+            const touch = e.changedTouches[0]
+            pageX = touch.pageX
+            pageY = touch.pageY
+          } else if (e.buttons !== 1) {
+            return
+          } else {
+            pageX = e.pageX
+            pageY = e.pageY
+          }
+
+          if (lastMoveTs !== undefined &&
+              e.timeStamp - lastMoveTs < MIN_DELTA_MS) {
+            return
+          }
+
+          const el = e.target
+          const canvasX = pageX - el.offsetLeft
+          const canvasY = pageY - el.offsetTop
+          const deviceX = canvasX
+          const deviceY = yMax - canvasY
+          ctx.lineTo(canvasX, canvasY)
+          ctx.stroke()
+          const payload = JSON.stringify([deviceX, deviceY])
+          ws.send(JSON.stringify(payload.length) + payload)
+
+          lastMoveTs = e.timeStamp
+        }
+
+        canvas.addEventListener('mousemove', moveEventHandler)
+        canvas.addEventListener('touchstart', e => e.preventDefault())
+        canvas.addEventListener('touchmove', moveEventHandler)
+
+        // Read the max X/Y coordinates from the device and size the canvas.
+        fetch('/status').then(
+          response => response.json().then(
+            data => {
+              xMax = data.max_position.x
+              yMax = data.max_position.y
+              canvas.width = xMax
+              canvas.height = yMax
+              ctx.beginPath()
+              ctx.moveTo(0, yMax)
+            }
+          )
+        )
+
+        document.getElementById('go-home').addEventListener('click', () => {
+          fetch('/move_to_point?x=0&y=0')
+        })
+
+      }
+
+      document.addEventListener("DOMContentLoaded", init)
+
+    </script>
+
+  </head>
+
+  <body>
+    <canvas id="canvas" width="0", height="0"></canvas>
+    <br>
+    <button id="go-home">Go Home</button>
+  </body>
+
+</html>
