@@ -355,11 +355,13 @@ def index(request):
 
 @route('/demo', methods=(GET,))
 def _demo(request):
-    scale = int(request.query.get('scale', 25))
-    x_offset = 0
+    scale = int(request.query.get('scale', 32))
+    x_offset = 1
+    y_offset = 6
     for c in 'SKETCHY':
         coords = CHARS[c]
-        draw_character([(x + x_offset, y) for x, y in coords], scale)
+        draw_character([(x + x_offset, y + y_offset) for x, y in coords],
+                       scale)
         x_offset += max(x for x, _ in coords) + 1
     return _200()
 
