@@ -17,4 +17,4 @@ default:
 	make flash-esp32-firmware; \
 	make configure-device;
 # Tell the user how to connect.
-	@echo "Connect to the game-server-{uniqueId} WiFi Access Point and surf your web browser over to http://192.168.4.1"
+	@echo "Connect to the 'sketchy' WiFi Access Point and surf your web browser over to http://192.168.4.1"
