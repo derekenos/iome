@@ -6,6 +6,11 @@ from collections import deque
 
 from . import xmltok
 
+from .utils import (
+    drop_while,
+    take_while,
+)
+
 
 NUMBER_UNIT_REGEX = re.compile('^(\d+)(.*)$')
 FLOAT_RE_PATTERN = '\-?\d+(?:\.\d+)?'
@@ -32,31 +37,6 @@ class State():
 
 
 parse_number_unit = NUMBER_UNIT_REGEX.match
-
-
-def take_while(pred, s):
-    """Consume characters a string until the predicate becomes false, returning
-    both the consumed string and any unconsumed tail.
-    """
-    i = 0
-    max_i = len(s) - 1
-    while i <= max_i and pred(s[i]):
-        if i == max_i:
-            break
-        i += 1
-    return s[:i], s[i:]
-
-
-def drop_while(pred, s):
-    """Ignore characters until the predicate becomes false and return the tail.
-    """
-    i = 0
-    max_i = len(s) - 1
-    while i <= max_i and pred(s[i]):
-        if i == max_i:
-            break
-        i += 1
-    return s[i:]
 
 
 def handle_start_tag(state, args):
@@ -283,3 +263,49 @@ def paths(fh):
     #     # Apply the current cumulative translations.
     #     x += math.floor(translate[0])
     #     y += math.floor(translate[1])
+
+
+###############################################################################
+# Tests
+###############################################################################
+
+from unittest import TestCase
+
+
+class SVGParserTester(TestCase):
+    def test_parse_d_attr_commands_m_single_param(self):
+        d = 'm 1.2,-1.1'
+        expected = [
+            ('m', (1.2, -1.1))
+        ]
+        self.assertEqual(parse_d_attr_commands(d), expected)
+
+
+    def test_parse_d_attr_commands_M_single_param(self):
+        d = 'M 1.2,-1.1'
+        expected = [
+            ('M', (1.2, -1.1))
+        ]
+        self.assertEqual(parse_d_attr_commands(d), expected)
+
+
+    def test_parse_d_attr_commands_m_mutli_param(self):
+        # Check that all params after the first are parsed as 'l'-type.
+        d = 'm 1.2,-1.1 2.0,3.0 4.1,5.1'
+        expected = [
+            ('m', (1.2, -1.1)),
+            ('l', (2.0, 3.0)),
+            ('l', (4.1, 5.1)),
+        ]
+        self.assertEqual(parse_d_attr_commands(d), expected)
+
+
+    def test_parse_d_attr_commands_M_mutli_param(self):
+        # Check that all params after the first are parsed as 'L'-type.
+        d = 'M 1.2,-1.1 2.0,3.0 4.1,5.1'
+        expected = [
+            ('M', (1.2, -1.1)),
+            ('L', (2.0, 3.0)),
+            ('L', (4.1, 5.1)),
+        ]
+        self.assertEqual(parse_d_attr_commands(d), expected)
