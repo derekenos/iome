@@ -199,127 +199,6 @@ def move_to_point(x, y):
 
 
 ###############################################################################
-# SVG Parser
-###############################################################################
-
-def render_svg(fh):
-    # TODO - move import to top of module.
-    # Install xmltok if necessary.
-    try:
-        import xmltok
-    except ImportError:
-        import upip
-        upip.install('xmltok')
-    import re
-
-    width = None
-    width_unit = None
-    height = None
-    height_unit = None
-    scale = None
-
-    NUMBER_UNIT_REGEX = re.compile('^(\d+)(.*)$')
-    parse_number_unit = lambda s: NUMBER_UNIT_REGEX.match(s)
-
-    FLOAT_RE_PATTERN = '\-?\d+(?:\.\d+)?'
-    PATH_COORD_REGEX = re.compile('({0}),({0})'.format(FLOAT_RE_PATTERN))
-
-    TRANSLATE_REGEX = re.compile(
-        'translate\(({0}),({0})\)'.format(FLOAT_RE_PATTERN)
-    )
-
-    g_translates = []
-    translate = (0, 0)
-    open_tags = []
-    first_path_point = None
-    relative_reference = (0, 0)
-
-    for token in xmltok.tokenize(fh):
-        if token[0] == 'START_TAG':
-            tag = token[1][1]
-            open_tags.append(tag)
-            if tag == 'g':
-                g_translates.append((0, 0))
-            elif tag == 'path':
-                first_path_point = None
-
-        elif token[0] == 'END_TAG':
-            tag = token[1][1]
-            open_tags.pop()
-            if tag == 'g':
-                x, y = g_translates.pop()
-                translate = translate[0] - x, translate[1] - y
-
-        if token[0] != 'ATTR':
-            continue
-        (_, k), v = token[1:]
-
-        if k == 'height':
-            match = parse_number_unit(v)
-            height = float(match.group(1))
-            height_unit = match.group(2)
-
-        elif k == 'width':
-            match = parse_number_unit(v)
-            width = float(match.group(1))
-            width_unit = match.group(2)
-
-        elif k == 'transform' and open_tags[-1] == 'g':
-            match = TRANSLATE_REGEX.match(v)
-            if match:
-                x = float(match.group(1))
-                y = float(match.group(2))
-                g_translates[-1] = x, y
-                translate = translate[0] + x, translate[1] + y
-
-        elif k == 'd':
-            if not width or not height:
-                raise AssertionError(
-                    'about to parse path but height and/or width not '
-                    'set: {}/{}'.format(width, height))
-            elif width_unit != height_unit:
-                raise AssertionError('Different width/height units: {}/{}'
-                                     .format(width_unit, height_unit))
-            elif scale is None:
-                scale = math.floor(max(X_MAX, Y_MAX) / max(width, height))
-
-            is_relative = False
-            for s in v.split():
-                match = PATH_COORD_REGEX.match(s)
-                if not match:
-                    if s != 'z':
-                        is_relative = s.islower()
-                        continue
-                    else:
-                        # Close the path.
-                        is_relative = False
-                        relative_reference = (0, 0)
-                        x, y = first_path_point
-                else:
-                    x = math.floor(float(match.group(1)))
-                    y = math.floor(float(match.group(2)))
-
-                if first_path_point is None:
-                    first_path_point = (x, y)
-
-                if is_relative:
-                    rel_x, rel_y = relative_reference
-                    x += rel_x
-                    y += rel_y
-
-                # Set the current point as the relative reference if not
-                # closing the path.
-                if s != 'z':
-                    relative_reference = x, y
-
-                # Apply the current cumulative translations.
-                x += math.floor(translate[0])
-                y += math.floor(translate[1])
-                # Invert the y axis.
-                move_to_point(x, Y_MAX - y)
-
-
-###############################################################################
 # Route Handlers
 ###############################################################################
 
@@ -421,13 +300,13 @@ def _home(request):
     return _200()
 
 
-@route('/demo_svg', methods=(GET,), query_param_parser_map={
-    'filename': as_type(str)
-})
-def _demo_svg(request, filename):
-    fh = open(filename, 'r')
-    render_svg(fh)
-    return _200()
+# @route('/demo_svg', methods=(GET,), query_param_parser_map={
+#     'filename': as_type(str)
+# })
+# def _demo_svg(request, filename):
+#     fh = open(filename, 'r')
+#     render_svg(fh)
+#     return _200()
 
 
 if __name__ == '__main__':
