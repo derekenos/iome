@@ -30,7 +30,7 @@ _Note that there should probably be some resistors and capacitors in there for c
 
 ## The Enclosure
 
-[![enclosure](https://user-images.githubusercontent.com/585182/67147896-25b9d600-f267-11e9-82a1-92d8972328c8.png)](https://github.com/derekenos/iome/blob/master/dev_kits/v1/enclosure.svg)
+[![enclosure](https://user-images.githubusercontent.com/585182/69495715-03cff680-0e98-11ea-96e5-fc7b710bb1a1.png)](https://github.com/derekenos/iome/blob/master/dev_kits/v1/enclosure.svg)
 
 
 ## Loading the Firmware onto the ESP32
