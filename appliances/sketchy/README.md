@@ -29,9 +29,11 @@ Approx. Total Cost: >$63
 
 _soon_
 
+
 ## The Enclosure
 
-_soon_
+[![enclosure](https://user-images.githubusercontent.com/585182/69495698-d71bdf00-0e97-11ea-805d-0b5d8ac67879.png)](https://github.com/derekenos/iome/blob/master/appliances/sketchy/enclosure.svg)
+
 
 ## Loading the Firmware onto the ESP32
 
