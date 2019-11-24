@@ -13,11 +13,10 @@ from .utils import (
 
 
 NUMBER_UNIT_REGEX = re.compile('^(\d+)(.*)$')
-FLOAT_RE_PATTERN = '\-?\d+(?:\.\d+)?'
+FLOAT_RE_PATTERN = '(\-?\d+(?:\.\d+)?)'
 FLOAT_REGEX = re.compile(FLOAT_RE_PATTERN)
-PATH_COORD_REGEX = re.compile('({0}),({0})'.format(FLOAT_RE_PATTERN))
 TRANSLATE_REGEX = re.compile(
-    'translate\(({0}),({0})\)'.format(FLOAT_RE_PATTERN)
+    'translate\({0},{0}\)'.format(FLOAT_RE_PATTERN)
 )
 
 
@@ -99,29 +98,23 @@ def parse_d_attr_commands(s):
     """
     commands = []
 
+    # Replace commas with spaces and collapse consecutive whitespace.
+    # See: https://www.w3.org/TR/SVG/paths.html#PathDataGeneralInformation
+    s = ' '.join(s.replace(',', ' ').split(' '))
+
     def take_params(s):
         params = []
         tail = s
         while True:
             head, tail = take_while(
-                lambda s: s != ' ' and not s.isalpha(),
+                lambda s: s.isdigit() or s == '-' or s == '.',
                 tail.strip()
             )
             if not head:
                 # Param not found.
                 break
-            # Strip any leading whitespace.
-            head = head.strip()
 
-            # Attempt to parse as a coordinate pair.
-            match = PATH_COORD_REGEX.match(head)
-            if match:
-                x = float(match.group(1))
-                y = float(match.group(2))
-                params.append((x, y))
-                continue
-
-            # Attempt to parse as a single number.
+            # Attempt to parse as a float.
             match = FLOAT_REGEX.match(head)
             if match:
                 x = float(match.group(1))
@@ -132,15 +125,24 @@ def parse_d_attr_commands(s):
 
         return params, tail
 
-    def process_command_with_params(command, params, arity):
-        while params:
+    def process_command_with_params(command, params, arity, max_sets=None):
+        """For the specified command, attempt to parse arity number of floats
+        from the params string and append the command + single set of params to
+        commands. Attempt to parse additional param sets with the assumption
+        that they correspond to implicit repeats of the specified command. If
+        max_sets is specified, parse up to that number of param sets and return
+        what remains of the params string.
+        """
+        while params and (max_sets is None or max_sets > 0):
             param_set = params[:arity]
             if len(param_set) != arity:
                 raise CouldNotParse(
-                    'd ATTR {} param: {}'.format(command, param_set)
-                )
-            commands.append((command, param_set))
+                    'd ATTR {} param: {}'.format(command, param_set))
+            commands.append((command, tuple(param_set)))
             params = params[arity:]
+            if max_sets is not None:
+                max_sets -= 1
+        return params
 
     while True:
         # Find the next command.
@@ -152,28 +154,26 @@ def parse_d_attr_commands(s):
         params, s = take_params(s[1:])
 
         if command == 'm':
-            commands.append((command, params[0]))
-            # Any additional params are implicit 'l' commands.
-            for param in params[1:]:
-                commands.append(('l', param))
+            params = process_command_with_params(command, params, 2, 1)
+            # Interpret additional params as implicit 'l' commands.
+            process_command_with_params('l', params, 2)
 
         elif command == 'M':
-            commands.append((command, params[0]))
-            # Any additional params are implicit 'L' commands.
-            for param in params[1:]:
-                commands.append(('L', param))
+            params = process_command_with_params(command, params, 2, 1)
+            # Interpret additional params as implicit 'L' commands.
+            process_command_with_params('L', params, 2)
 
         elif command in ('L', 'l', 'H', 'h', 'V', 'v'):
-            process_command_with_params(command, params, arity=1)
-
-        elif command in ('C', 'c'):
-            process_command_with_params(command, params, arity=3)
-
-        elif command in ('S', 's', 'Q', 'q'):
             process_command_with_params(command, params, arity=2)
 
+        elif command in ('C', 'c'):
+            process_command_with_params(command, params, arity=6)
+
+        elif command in ('S', 's', 'Q', 'q'):
+            process_command_with_params(command, params, arity=4)
+
         elif command in ('T', 't'):
-            process_command_with_params(command, params, arity=1)
+            process_command_with_params(command, params, arity=2)
 
         elif command in ('z', 'Z'):
             commands.append((command, []))
@@ -308,4 +308,31 @@ class SVGParserTester(TestCase):
             ('L', (2.0, 3.0)),
             ('L', (4.1, 5.1)),
         ]
+        self.assertEqual(parse_d_attr_commands(d), expected)
+
+
+    def test_parse_d_attr_w3c_(self):
+        """https://www.w3.org/TR/SVG/paths.html#PathDataGeneralInformation
+        """
+        d = 'M 100 100 L 200 200'
+        expected = [
+            ('M', (100, 100)),
+            ('L', (200, 200)),
+        ]
+        self.assertEqual(parse_d_attr_commands(d), expected)
+
+        d = 'M100 100L200 200'
+        # Same expected.
+        self.assertEqual(parse_d_attr_commands(d), expected)
+
+        d = 'M 100 200 L 200 100 L -100 -200'
+        expected = [
+            ('M', (100, 200)),
+            ('L', (200, 100)),
+            ('L', (-100, -200)),
+        ]
+        self.assertEqual(parse_d_attr_commands(d), expected)
+
+        d = 'M 100 200 L 200 100 -100 -200'
+        # Same expected.
         self.assertEqual(parse_d_attr_commands(d), expected)
