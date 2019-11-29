@@ -50,9 +50,7 @@ F 3 "" H 3200 1600 50  0001 C CNN
 $EndComp
 Text GLabel 3500 6100 2    50   Input ~ 0
 NOT_ENABLE
-Wire Wire Line
-	3500 4100 3200 4100
-Text GLabel 3500 4100 2    50   Input ~ 0
+Text GLabel 3350 4350 2    50   Input ~ 0
 GND
 Text GLabel 3500 6300 2    50   Input ~ 0
 GND
@@ -62,118 +60,22 @@ Wire Wire Line
 	3200 6400 3500 6400
 Wire Wire Line
 	3500 6300 3200 6300
-Text GLabel 3500 5800 2    50   Input ~ 0
+Text GLabel 3500 6000 2    50   Input ~ 0
 STEPPER_X_STEP
-Wire Wire Line
-	3500 5800 3200 5800
 Text GLabel 3500 5900 2    50   Input ~ 0
 STEPPER_X_DIR
 Wire Wire Line
 	3500 5900 3200 5900
 Text GLabel 3500 5700 2    50   Input ~ 0
 STEPPER_Y_DIR
-Text GLabel 3500 6000 2    50   Input ~ 0
+Text GLabel 3500 5800 2    50   Input ~ 0
 STEPPER_Y_STEP
-Wire Wire Line
-	3500 6000 3200 6000
-Text GLabel 3500 4200 2    50   Input ~ 0
+Text GLabel 3350 4450 2    50   Input ~ 0
 3V3
-Wire Wire Line
-	3500 4200 3200 4200
 Text GLabel 3500 6200 2    50   Input ~ 0
 3V3
 Wire Wire Line
 	3500 6200 3200 6200
-NoConn ~ 3350 2300
-Wire Wire Line
-	3350 2300 3200 2300
-Wire Wire Line
-	3350 2400 3200 2400
-NoConn ~ 3350 2400
-Wire Wire Line
-	3350 2500 3200 2500
-NoConn ~ 3350 2500
-Wire Wire Line
-	3350 2600 3200 2600
-NoConn ~ 3350 2600
-Wire Wire Line
-	3350 2700 3200 2700
-NoConn ~ 3350 2700
-Wire Wire Line
-	3350 2800 3200 2800
-NoConn ~ 3350 2800
-Wire Wire Line
-	3350 2900 3200 2900
-NoConn ~ 3350 2900
-Wire Wire Line
-	3350 3000 3200 3000
-NoConn ~ 3350 3000
-Wire Wire Line
-	3350 3100 3200 3100
-NoConn ~ 3350 3100
-Wire Wire Line
-	3350 3200 3200 3200
-NoConn ~ 3350 3200
-Wire Wire Line
-	3350 3300 3200 3300
-NoConn ~ 3350 3300
-Wire Wire Line
-	3350 3400 3200 3400
-NoConn ~ 3350 3400
-Wire Wire Line
-	3350 3500 3200 3500
-NoConn ~ 3350 3500
-Wire Wire Line
-	3350 3600 3200 3600
-NoConn ~ 3350 3600
-Wire Wire Line
-	3350 3700 3200 3700
-NoConn ~ 3350 3700
-Wire Wire Line
-	3350 3800 3200 3800
-NoConn ~ 3350 3800
-Wire Wire Line
-	3350 3900 3200 3900
-NoConn ~ 3350 3900
-Wire Wire Line
-	3350 4000 3200 4000
-NoConn ~ 3350 4000
-Wire Wire Line
-	3350 4500 3200 4500
-NoConn ~ 3350 4500
-Wire Wire Line
-	3350 4600 3200 4600
-NoConn ~ 3350 4600
-Wire Wire Line
-	3350 4700 3200 4700
-NoConn ~ 3350 4700
-Wire Wire Line
-	3350 4800 3200 4800
-NoConn ~ 3350 4800
-Wire Wire Line
-	3350 4900 3200 4900
-NoConn ~ 3350 4900
-Wire Wire Line
-	3350 5000 3200 5000
-NoConn ~ 3350 5000
-Wire Wire Line
-	3350 5100 3200 5100
-NoConn ~ 3350 5100
-Wire Wire Line
-	3350 5200 3200 5200
-NoConn ~ 3350 5200
-Wire Wire Line
-	3350 5300 3200 5300
-NoConn ~ 3350 5300
-Wire Wire Line
-	3350 5400 3200 5400
-NoConn ~ 3350 5400
-Wire Wire Line
-	3350 5500 3200 5500
-NoConn ~ 3350 5500
-Wire Wire Line
-	3350 5600 3200 5600
-NoConn ~ 3350 5600
 Wire Wire Line
 	7100 4550 7250 4550
 Text GLabel 7050 4750 0    50   Input ~ 0
@@ -394,4 +296,95 @@ Wire Wire Line
 	3500 6100 3200 6100
 Wire Wire Line
 	3500 5700 3200 5700
+Wire Wire Line
+	3500 5800 3200 5800
+Wire Wire Line
+	3500 6000 3200 6000
+$Comp
+L Connector_Generic:Conn_01x09 J4
+U 1 1 5DDFE4C5
+P 3550 5200
+F 0 "J4" V 3767 5196 50  0000 C CNN
+F 1 "Conn_01x09" V 3676 5196 50  0000 C CNN
+F 2 "Pin_Header_Straight_1x09_Pitch2.54mm" H 3550 5200 50  0001 C CNN
+F 3 "~" H 3550 5200 50  0001 C CNN
+	1    3550 5200
+	1    0    0    1   
+$EndComp
+Wire Wire Line
+	3200 5600 3350 5600
+Wire Wire Line
+	3350 5500 3200 5500
+Wire Wire Line
+	3200 5400 3350 5400
+Wire Wire Line
+	3350 5300 3200 5300
+Wire Wire Line
+	3200 5200 3350 5200
+Wire Wire Line
+	3350 5100 3200 5100
+Wire Wire Line
+	3200 5000 3350 5000
+Wire Wire Line
+	3350 4900 3200 4900
+Wire Wire Line
+	3200 4800 3350 4800
+$Comp
+L Connector_Generic:Conn_01x17 J2
+U 1 1 5DDFE417
+P 3550 3400
+F 0 "J2" H 3468 2375 50  0000 C CNN
+F 1 "Conn_01x17" H 3468 2466 50  0000 C CNN
+F 2 "" H 3550 3400 50  0001 C CNN
+F 3 "~" H 3550 3400 50  0001 C CNN
+	1    3550 3400
+	1    0    0    1   
+$EndComp
+Wire Wire Line
+	3350 4100 3200 4100
+Wire Wire Line
+	3350 4200 3300 4200
+Wire Wire Line
+	3350 4000 3200 4000
+Wire Wire Line
+	3350 3900 3200 3900
+Wire Wire Line
+	3200 3800 3350 3800
+Wire Wire Line
+	3350 3700 3200 3700
+Wire Wire Line
+	3200 3600 3350 3600
+Wire Wire Line
+	3350 3500 3200 3500
+Wire Wire Line
+	3200 3400 3350 3400
+Wire Wire Line
+	3350 3300 3200 3300
+Wire Wire Line
+	3200 3200 3350 3200
+Wire Wire Line
+	3350 3100 3200 3100
+Wire Wire Line
+	3200 3000 3350 3000
+Wire Wire Line
+	3350 2900 3200 2900
+Wire Wire Line
+	3200 2800 3350 2800
+Wire Wire Line
+	3350 2700 3200 2700
+Wire Wire Line
+	3200 2600 3350 2600
+Connection ~ 3350 4100
+Wire Wire Line
+	3350 4100 3350 4200
+Wire Wire Line
+	3350 4450 3300 4450
+Wire Wire Line
+	3300 4450 3300 4200
+Connection ~ 3300 4200
+Wire Wire Line
+	3300 4200 3200 4200
+Connection ~ 3350 4200
+Wire Wire Line
+	3350 4200 3350 4350
 $EndSCHEMATC

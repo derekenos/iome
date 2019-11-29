@@ -1,4 +1,0 @@
-(fp_lib_table
-  (lib (name "Housings_DIP-custom")(type "KiCad")(uri "${KIPRJMOD}/Housings_DIP-custom.pretty")(options "")(descr ""))
-  (lib (name "Modules-custom")(type "KiCad")(uri "${KIPRJMOD}/Modules-custom.pretty")(options "")(descr ""))
-)
