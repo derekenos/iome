@@ -27,7 +27,7 @@ Approx. Total Cost: >$63
 
 ## Professional Electrical Interconnection Diagram
 
-![sketchy_schematic_20191129](https://user-images.githubusercontent.com/585182/69905785-c0d5bd80-1386-11ea-9f93-dd22e2c16b39.png)
+![sketchy_schematic_20191129](https://user-images.githubusercontent.com/585182/69905911-ebc11100-1388-11ea-8c97-4da41fdfbdd8.png)
 
 
 ## The Enclosure
