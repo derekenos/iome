@@ -1,16 +1,13 @@
 # Sketchy
 
+Sketchy is a motorized Etch A Sketch display appliance.
+
 <a href="https://user-images.githubusercontent.com/585182/69062387-d80cc680-09e8-11ea-82ab-671f9070fd5e.png">
   <img src="https://user-images.githubusercontent.com/585182/69062387-d80cc680-09e8-11ea-82ab-671f9070fd5e.png" alt="sketchy prototype" width="560" />
 </a>
 
-<br><br>
-
 [![Sketch Video Preview](https://user-images.githubusercontent.com/585182/69904980-dc879680-137b-11ea-9b80-bd7f39bab9cc.png)](http://derekenos.com/video/sketchy_20191120.mp4)
 
-<br><br>
-
-Sketchy is a motorized Etch A Sketch display appliance.
 
 ## Bill of Materials
 
