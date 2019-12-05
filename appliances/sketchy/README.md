@@ -32,6 +32,10 @@ Approx. Total Cost: >$63
 
 ![sketchy_schematic_20191129](https://user-images.githubusercontent.com/585182/69905911-ebc11100-1388-11ea-8c97-4da41fdfbdd8.png)
 
+## The Printed Board of Circuits
+
+![IMG_20191205_152609](https://user-images.githubusercontent.com/585182/70272850-f6a7e700-1776-11ea-9c5c-71b60466da60.jpg)
+
 
 ## The Enclosure
 
