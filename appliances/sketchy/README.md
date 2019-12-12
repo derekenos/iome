@@ -15,7 +15,7 @@ Sketchy is a motorized Etch A Sketch display appliance.
 | --- | --- | --- | --- | --- |
 | 1 | Etch A Sketch | | [20083951-6041762](https://www.amazon.com/gp/product/B01MTS465O) | $10 |
 | 1 | Wifi Dev Board | Espressif | [ESP32-PICO-KIT](https://octopart.com/esp32-pico-kit-espressif+systems-91893718) | $10 |
-| 2 | StepStick Motor Driver | GENERIC | ? | $5 |
+| 2 | StepStick Motor Driver | GENERIC | [B01FFGAKK8](https://www.amazon.com/gp/product/B01FFGAKK8) | $5 |
 | 2 | Nema 17 Stepper Motors | STEPPERONLINE | [17HS16-2004S](https://www.amazon.com/gp/product/B00PNEQI7W) | $26 |
 | 2 | 6mm Bore GT2 Pulley | Houkr | [B07DMZQ364](https://www.amazon.com/gp/product/B07DMZQ364) | $4 |
 | 2 | 5mm Bore GT2 Pulley | WINSINN | [B077GNZK3J](https://www.amazon.com/WINSINN-Aluminum-Synchronous-Timing-Printer/dp/B077GNZK3J) | $3 |
