@@ -29,6 +29,10 @@ Sketchy is a motorized Etch A Sketch display appliance.
 
 Approx. Total Cost: $72
 
+## View of Materials
+
+![kit_annotated](https://user-images.githubusercontent.com/585182/70724063-eb4d4200-1cc7-11ea-83a6-4cd2c58292b6.png)
+
 
 ## Professional Electrical Interconnection Diagram
 
