@@ -1,5 +1,4 @@
 
-
 def char_def_to_points(char_def):
     """Return a generator of (<x>, <y>) coordinate tuples that
     represent the path defined by the specified ASCII art caharacter
@@ -49,11 +48,12 @@ def char_def_to_points(char_def):
                 min_nonempty_col_num = col_num
             order_char_coord_tuples.append((char, (col_num, row_num)))
             # If this order char is defined in the revisit_map, duplicate its
-            # coordinate under the specified revisit order value.
+            # coordinate under the specified revisit order value(s).
             if char in revisit_map:
-                order_char_coord_tuples.append(
-                    (revisit_map[char], (col_num, row_num))
-                )
+                for order_char in revisit_map[char]:
+                    order_char_coord_tuples.append(
+                        (order_char, (col_num, row_num))
+                    )
 
     # Subtract the number of leading empty columns from the x coordinate values
     # and invert the y axis coordinates to place the grid origin at the

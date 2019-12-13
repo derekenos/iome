@@ -12,6 +12,9 @@ from utime import (
     sleep_us,
 )
 
+from fonts import char_def_to_points
+from fonts.default import CHARS
+
 from lib.femtoweb import default_http_endpoints
 from lib.femtoweb.server import (
     _200,
@@ -40,37 +43,6 @@ DIR_LEFT = 'left'
 DIR_RIGHT = 'right'
 X_MAX = 880
 Y_MAX = 680
-
-CHARS = {
-    'S': [
-        (0, 0), (0, 1), (1, 1), (1, 2), (0, 2), (0, 5), (2, 5), (2, 4),
-        (1, 4), (1, 3), (2, 3), (2, 0), (0, 0), (2, 0)
-    ],
-    'K': [
-        (0, 0), (0, 5), (1, 5), (1, 3), (2, 4), (2, 5), (3, 5), (3, 4), (1, 2),
-        (3, 1), (3, 0), (2, 0), (1, 1), (1, 0), (0, 0), (3, 0)
-    ],
-    'E': [
-        (0, 0), (0, 5), (2, 5), (2, 4), (1, 4), (1, 3), (2, 3), (2, 2), (1, 2),
-        (1, 1), (2, 1), (2, 0), (0, 0), (2, 0)
-    ],
-    'T': [
-        (1, 0), (1, 4), (0, 4), (0, 5), (3, 5), (3, 4), (2, 4), (2, 0), (1, 0),
-        (3, 0)
-    ],
-    'C': [
-        (0, 0), (0, 5), (2, 5), (2, 4), (1, 4), (1, 1), (2, 1), (2, 0), (0, 0),
-        (2, 0)
-    ],
-    'H': [
-        (0, 0), (0, 5), (1, 5), (1, 3), (2, 3), (2, 5), (3, 5), (3, 0), (2, 0),
-        (2, 2), (1, 2), (1, 0), (0, 0), (1, 0), (1, 2), (2, 2), (2, 0)
-    ],
-    'Y': [
-        (2, 0), (2, 3), (0, 4), (0, 5), (1, 5), (2, 4), (2, 5), (3, 5), (3, 0),
-        (2, 0), (3, 0)
-    ],
-}
 
 
 STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
@@ -358,8 +330,8 @@ def _demo(request):
     scale = int(request.query.get('scale', 32))
     x_offset = 1
     y_offset = 6
-    for c in 'SKETCHY':
-        coords = CHARS[c]
+    for c in 'ABCCBA':
+        coords = list(char_def_to_points(CHARS[c]))
         draw_character([(x + x_offset, y + y_offset) for x, y in coords],
                        scale)
         x_offset += max(x for x, _ in coords) + 1
