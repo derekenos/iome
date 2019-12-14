@@ -23,8 +23,10 @@ from lib.femtoweb.server import (
     POST,
     as_choice,
     as_json,
+    as_maybe,
     as_type,
     as_websocket,
+    as_with_default,
     route,
     send,
     serve,
@@ -35,15 +37,21 @@ from lib.femtoweb.server import (
 # Stepper Motor Control
 ###############################################################################
 
-X = 'x'
-Y = 'y'
+X_AXIS = 'x'
+Y_AXIS = 'y'
+X_AXIS_MAX = 880
+Y_AXIS_MAX = 680
 DIR_UP = 'up'
 DIR_DOWN = 'down'
 DIR_LEFT = 'left'
 DIR_RIGHT = 'right'
-X_MAX = 880
-Y_MAX = 680
 
+DIR_BACKLASH_STEPS_MAP = {
+    DIR_UP: 10,
+    DIR_DOWN: 10,
+    DIR_LEFT: 10,
+    DIR_RIGHT: 10,
+}
 
 STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
 STEPPER_NOT_ENABLE_PIN.value(1)
@@ -70,22 +78,42 @@ disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
 
 
 def draw_character(char, scale=25):
+    # Add a sprue directly below the first coord.
+    sprue_coord = char[0]
+    char = [(x, y + 1) for x, y in char]
+    char = [sprue_coord] + char + [sprue_coord]
+
     for x, y in char:
         x = x * scale
         y = y * scale
         move_to_point(x, y)
 
 
+# Keep track of the last step direction for each axis so that we can compensate
+# for the backlash when the direction changes.
+axis_last_step_dir_map = {
+    X_AXIS: DIR_LEFT,
+    Y_AXIS: DIR_DOWN,
+}
+
+
+def pulse_step_pin(step_pin):
+    step_pin.value(1)
+    sleep_us(1)
+    step_pin.value(0)
+    sleep_us(1)
+
+
 def step(axis, direction):
     global x_pos
     global y_pos
-    if axis == X:
+    if axis == X_AXIS:
         if direction == DIR_LEFT:
             if x_pos == 0:
                 return False
             x_pos -= 1
         elif direction == DIR_RIGHT:
-            if x_pos == X_MAX:
+            if x_pos == X_AXIS_MAX:
                 return False
             x_pos += 1
         step_pin = STEPPER_X_STEP_PIN
@@ -96,17 +124,25 @@ def step(axis, direction):
                 return False
             y_pos -= 1
         elif direction == DIR_UP:
-            if y_pos == Y_MAX:
+            if y_pos == Y_AXIS_MAX:
                 return False
             y_pos += 1
         step_pin = STEPPER_Y_STEP_PIN
         dir_pin = STEPPER_Y_DIR_PIN
 
     dir_pin(0 if direction in (DIR_DOWN, DIR_LEFT) else 1)
-    step_pin.value(1)
-    sleep_us(1)
-    step_pin.value(0)
-    sleep_us(1)
+
+    # If the current direction is the opposite of the last axis step, step
+    # through the backlash.
+    if direction != axis_last_step_dir_map[axis]:
+        num_backlash_steps = DIR_BACKLASH_STEPS_MAP[direction]
+        while num_backlash_steps:
+            pulse_step_pin(step_pin)
+            sleep_ms(3)
+            num_backlash_steps -= 1
+        axis_last_step_dir_map[axis] = direction
+
+    pulse_step_pin(step_pin)
     return True
 
 
@@ -126,9 +162,9 @@ def move_to_point(x, y):
     global y_pos
     global is_moving_to_point
 
-    if x > X_MAX or y > Y_MAX:
+    if x > X_AXIS_MAX or y > Y_AXIS_MAX:
         raise AssertionError('x,y max is {},{}, got {},{}'.format(
-            X_MAX, Y_MAX, x, y))
+            X_AXIS_MAX, Y_AXIS_MAX, x, y))
 
     # Discard any specified fractional component and calculate deltas.
     x_delta = math.floor(x) - x_pos
@@ -152,18 +188,18 @@ def move_to_point(x, y):
             x_acc += x_acc_step_size
             if math.floor(x_acc) != math.floor(last_x_acc):
                 if x_acc_step_size < 0:
-                    step(X, DIR_LEFT)
+                    step(X_AXIS, DIR_LEFT)
                 elif x_acc_step_size > 0:
-                    step(X, DIR_RIGHT)
+                    step(X_AXIS, DIR_RIGHT)
 
         if y_acc_step_size != 0 and y_pos != y:
             last_y_acc = y_acc
             y_acc += y_acc_step_size
             if math.floor(y_acc) != math.floor(last_y_acc):
                 if y_acc_step_size < 0:
-                    step(Y, DIR_DOWN)
+                    step(Y_AXIS, DIR_DOWN)
                 elif y_acc_step_size > 0:
-                    step(Y, DIR_UP)
+                    step(Y_AXIS, DIR_UP)
 
         sleep_ms(3)
     is_moving_to_point = False
@@ -253,7 +289,7 @@ def render_svg(fh):
                 raise AssertionError('Different width/height units: {}/{}'
                                      .format(width_unit, height_unit))
             elif scale is None:
-                scale = math.floor(max(X_MAX, Y_MAX) / max(width, height))
+                scale = math.floor(max(X_AXIS_MAX, Y_AXIS_MAX) / max(width, height))
 
             is_relative = False
             for s in v.split():
@@ -288,7 +324,7 @@ def render_svg(fh):
                 x += math.floor(translate[0])
                 y += math.floor(translate[1])
                 # Invert the y axis.
-                move_to_point(x, Y_MAX - y)
+                move_to_point(x, Y_AXIS_MAX - y)
 
 
 ###############################################################################
@@ -309,8 +345,8 @@ def _reset(request):
 def _status(request):
     data = {
         'max_position': {
-            'x': X_MAX,
-            'y': Y_MAX
+            'x': X_AXIS_MAX,
+            'y': Y_AXIS_MAX
         },
         'current_position': {
             'x': x_pos,
@@ -338,6 +374,33 @@ def _demo(request):
     return _200()
 
 
+@route('/write', methods=(GET,), query_param_parser_map={
+    'text': as_type(str),
+    'scale': as_with_default(as_type(float), 10),
+    'x_offset': as_maybe(as_type(int)),
+    'y_offset': as_maybe(as_type(int)),
+    'letter_spacing': as_with_default(as_type(int), 10),
+})
+def _write(request, text, scale, x_offset, y_offset, letter_spacing):
+    # Use the current x/y position if unspecified.
+    if x_offset is None:
+        x_offset = x_pos
+    if y_offset is None:
+        y_offset = y_pos
+    # Iterate through the characters in text, drawing each and incrementing the
+    # x_offset.
+    for char in text:
+        if char in CHARS:
+            coords = list(char_def_to_points(CHARS[char]))
+        else:
+            # DEV - use space as placeholder for unsupported chars.
+            coords = list(char_def_to_points(CHARS[' ']))
+        draw_character([(x + x_offset, y + y_offset) for x, y in coords],
+                       scale)
+        x_offset += max(coord[0] for coord in coords) + letter_spacing / scale
+    return _200()
+
+
 @route('/move_to_point', methods=(GET,), query_param_parser_map={
     'x': as_type(int),
     'y': as_type(int),
@@ -348,7 +411,7 @@ def _move_to_point(request, x, y):
 
 
 @route('/multi_step', methods=(GET,), query_param_parser_map={
-    'axis': as_choice(X, Y),
+    'axis': as_choice(X_AXIS, Y_AXIS),
     'direction': as_choice(DIR_UP, DIR_DOWN, DIR_LEFT, DIR_RIGHT),
     'num_steps': as_type(int),
 })
@@ -384,8 +447,8 @@ def _home(request):
     """
     global x_pos
     global y_pos
-    x_pos = X_MAX
-    y_pos = Y_MAX
+    x_pos = X_AXIS_MAX
+    y_pos = Y_AXIS_MAX
     move_to_point(0, 0)
     move_to_point(20, 20)
     x_pos = 0
