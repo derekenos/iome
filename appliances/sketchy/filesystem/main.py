@@ -54,10 +54,10 @@ DIR_LEFT = 'left'
 DIR_RIGHT = 'right'
 
 DIR_BACKLASH_STEPS_MAP = {
-    DIR_UP: 10,
-    DIR_DOWN: 10,
-    DIR_LEFT: 10,
-    DIR_RIGHT: 10,
+    DIR_UP: 14,
+    DIR_DOWN: 14,
+    DIR_LEFT: 14,
+    DIR_RIGHT: 14,
 }
 
 STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
@@ -428,8 +428,7 @@ def index(request):
 
 @route('/demo', methods=(GET,))
 def _demo(request):
-    char_height = int(request.query.get('char_height', 32))
-    draw_text('SKETCHY', char_height=char_height, x_offset=0, y_offset=200)
+    draw_text('SKETCHY FOR LIFE', char_height=64, x_offset=0, y_offset=300)
     return _200()
 
 
