@@ -34,6 +34,13 @@ from lib.femtoweb.server import (
 
 
 ###############################################################################
+# Exceptions
+###############################################################################
+
+class OutOfBounds(Exception): pass
+
+
+###############################################################################
 # Stepper Motor Control
 ###############################################################################
 
@@ -75,18 +82,6 @@ y_pos = 0
 
 enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
 disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
-
-
-def draw_character(char, scale=25):
-    # Add a sprue directly below the first coord.
-    sprue_coord = char[0]
-    char = [(x, y + 1) for x, y in char]
-    char = [sprue_coord] + char + [sprue_coord]
-
-    for x, y in char:
-        x = x * scale
-        y = y * scale
-        move_to_point(x, y)
 
 
 # Keep track of the last step direction for each axis so that we can compensate
@@ -163,12 +158,14 @@ def move_to_point(x, y):
     global is_moving_to_point
 
     if x > X_AXIS_MAX or y > Y_AXIS_MAX:
-        raise AssertionError('x,y max is {},{}, got {},{}'.format(
+        raise OutOfBounds('x,y max is {},{}, got {},{}'.format(
             X_AXIS_MAX, Y_AXIS_MAX, x, y))
 
     # Discard any specified fractional component and calculate deltas.
-    x_delta = math.floor(x) - x_pos
-    y_delta = math.floor(y) - y_pos
+    x = math.floor(x)
+    y = math.floor(y)
+    x_delta = x - x_pos
+    y_delta = y - y_pos
 
     # Plan a linear path.
     max_delta = max(abs(x_delta), abs(y_delta))
@@ -204,6 +201,74 @@ def move_to_point(x, y):
         sleep_ms(3)
     is_moving_to_point = False
     disable_steppers()
+
+
+def move_to_points(points):
+    """Move along a sequence of points.
+    """
+    for x, y in points:
+        move_to_point(x, y)
+
+
+###############################################################################
+# Text Drawing Functions
+###############################################################################
+
+def draw_text(text, char_height, char_spacing=None, word_spacing=None,
+              x_offset=None, y_offset=None):
+    """
+    """
+    # TODO: check whether plotting text will exceed width before starting
+    # TODO: add line wrapping
+
+    # If not specified, set char_spacing and word_spacing relative to
+    # char_height.
+    if char_spacing is None:
+        char_spacing = math.floor(char_height / 8)
+    if word_spacing is None:
+        word_spacing = char_spacing * 4
+
+    # Use the current x/y position if unspecified.
+    if x_offset is None:
+        x_offset = x_pos
+    if y_offset is None:
+        y_offset = y_pos
+
+    # Iterate through the characters in text, drawing each and incrementing the
+    # x_offset.
+    for char in text:
+        # Handle SPACE and unsupported chars by advancing the x position by
+        # word_spacing number of steps.
+        if char == ' ' or char not in CHARS:
+            multi_step(X_AXIS, DIR_RIGHT, word_spacing)
+            x_offset += word_spacing
+            continue
+
+        points = list(char_def_to_points(CHARS[char]))
+
+        # Calculate the scale.
+        max_y = max(y for _, y in points)
+        scale = math.ceil(char_height / (max_y + 1))
+
+        # Add a sprue directly below the character entry point.
+        sprue_coord = points[0]
+        # Move all the points up one to make room for the sprue.
+        points = [(x, y + 1) for x, y in points]
+        points = [sprue_coord] + points + [sprue_coord]
+
+        # Apply the scaling.
+        points = [(x * scale, y * scale) for x, y in points]
+
+        # Calc the next x_offset.
+        next_x_offset = max(x for x, _ in points) + char_spacing
+
+        # Apply offset.
+        points = [(x + x_offset, y + y_offset) for x, y in points]
+
+        move_to_points(points)
+
+        x_offset += next_x_offset
+
 
 
 ###############################################################################
@@ -363,41 +428,23 @@ def index(request):
 
 @route('/demo', methods=(GET,))
 def _demo(request):
-    scale = int(request.query.get('scale', 32))
-    x_offset = 1
-    y_offset = 6
-    for c in 'ABCCBA':
-        coords = list(char_def_to_points(CHARS[c]))
-        draw_character([(x + x_offset, y + y_offset) for x, y in coords],
-                       scale)
-        x_offset += max(x for x, _ in coords) + 1
+    char_height = int(request.query.get('char_height', 32))
+    draw_text('SKETCHY', char_height=char_height, x_offset=0, y_offset=200)
     return _200()
 
 
 @route('/write', methods=(GET,), query_param_parser_map={
     'text': as_type(str),
-    'scale': as_with_default(as_type(float), 10),
+    'char_height': as_with_default(as_type(float), 10),
+    'char_spacing': as_with_default(as_type(int), 10),
+    'word_spacing': as_with_default(as_type(int), 40),
     'x_offset': as_maybe(as_type(int)),
     'y_offset': as_maybe(as_type(int)),
-    'letter_spacing': as_with_default(as_type(int), 10),
 })
-def _write(request, text, scale, x_offset, y_offset, letter_spacing):
-    # Use the current x/y position if unspecified.
-    if x_offset is None:
-        x_offset = x_pos
-    if y_offset is None:
-        y_offset = y_pos
-    # Iterate through the characters in text, drawing each and incrementing the
-    # x_offset.
-    for char in text:
-        if char in CHARS:
-            coords = list(char_def_to_points(CHARS[char]))
-        else:
-            # DEV - use space as placeholder for unsupported chars.
-            coords = list(char_def_to_points(CHARS[' ']))
-        draw_character([(x + x_offset, y + y_offset) for x, y in coords],
-                       scale)
-        x_offset += max(coord[0] for coord in coords) + letter_spacing / scale
+def _write(request, text, char_height, char_spacing, word_spacing, x_offset,
+           y_offset):
+    draw_text(text, char_height, char_spacing, word_spacing, x_offset,
+              y_offset)
     return _200()
 
 

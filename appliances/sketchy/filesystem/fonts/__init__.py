@@ -1,8 +1,10 @@
 
+# TODO: define explicit entry point in char def instead of implicit return to 0
+
+
 def char_def_to_points(char_def):
     """Return a generator of (<x>, <y>) coordinate tuples that
-    represent the path defined by the specified ASCII art caharacter
-    definition.
+    represent the path defined by the specified ASCII art character definition.
 
     For example, for this char_def with an empty revisit_map:
 
@@ -30,10 +32,14 @@ def char_def_to_points(char_def):
     rows = ascii_art.splitlines()
 
     # Remove any leading and/or trailing empty rows.
-    while rows[0].strip() == '':
+    while rows and rows[0].strip() == '':
         rows = rows[1:]
-    while rows[-1].strip() == '':
+    while rows and rows[-1].strip() == '':
         rows = rows[:-1]
+
+    # Return if character contains no data.
+    if not rows:
+        return
 
     # Collect all the order character coordinates and determine the column
     # position of the leftmost non-empty character.
