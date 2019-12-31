@@ -10,3 +10,6 @@
 [submodule "appliances/sketchy/filesystem/lib/femtoweb"]
 	path = appliances/sketchy/filesystem/lib/femtoweb
 	url = https://github.com/derekenos/femtoweb.git
+[submodule "appliances/sketchy/micropython-docker"]
+	path = appliances/sketchy/micropython-docker
+	url = https://github.com/derekenos/micropython-docker.git
