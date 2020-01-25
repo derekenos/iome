@@ -2,6 +2,7 @@
 import json
 import machine
 import math
+import os
 from collections import deque
 from machine import (
     Pin,
@@ -11,6 +12,8 @@ from utime import (
     sleep_ms,
     sleep_us,
 )
+
+from lib._os import path
 
 from fonts import char_def_to_points
 from fonts.default import CHARS
@@ -75,13 +78,45 @@ STEPPER_Y_STEP_PIN.value(0)
 STEPPER_Y_DIR_PIN = Pin(13, Pin.OUT)
 STEPPER_Y_DIR_PIN.value(1)
 
+DATA_PATH = '/data'
+LAST_POSITION_DATA_PATH = path.join(DATA_PATH, 'last_position')
 
-x_pos = 0
-y_pos = 0
+
+x_pos = None
+y_pos = None
 
 
 enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
 disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
+
+
+def ensure_data_path_exists():
+    if not path.exists(DATA_PATH):
+        os.mkdir(DATA_PATH)
+
+
+def save_current_position():
+    """Save the current position.
+    """
+    global x_pos
+    global y_pos
+    ensure_data_path_exists()
+    with open(LAST_POSITION_DATA_PATH, 'wb') as f:
+        f.write(b'{},{}'.format(x_pos, y_pos))
+
+
+def get_last_position():
+    """Return the saved last position as the tuple (<x>, <y>). If no saved
+    position exists, return (0, 0).
+    """
+    if not path.exists(LAST_POSITION_DATA_PATH):
+        return 0, 0
+    x_str, y_str = open(LAST_POSITION_DATA_PATH, 'rb').read().split(b',')
+    return int(x_str), int(y_str)
+
+
+# Update x_pos and y_pos with the last known position.
+x_pos, y_pos = get_last_position()
 
 
 # Keep track of the last step direction for each axis so that we can compensate
@@ -269,6 +304,8 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
 
         x_offset += next_x_offset
 
+    # Save the current position as the last known.
+    save_current_position()
 
 
 ###############################################################################
