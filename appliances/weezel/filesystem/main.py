@@ -163,6 +163,21 @@
 #  Y Offset: ~20 mm (depends on the thickness of the chalk / pen / etc.)
 #
 # We'll do the actual calculation in the function called calc_legs()
+#
+#
+# Converting linear distance to stepper motor steps:
+#
+# The stepper motor that we're using has a step angle of 1.8 degrees, which
+# comes out to 200 steps / revolution.
+# https://www.amazon.com/gp/product/B00PNEQI7W
+#
+# The GT2 belt pulley that we're using has an inner diameter of 12mm, which
+# gives us a circumference of 2 * PI * 12 / 2 = 37.7mm
+# They're ones that come with this:
+# https://www.amazon.com/gp/product/B0776KXY8G
+#
+# So each 1.8 degree stepper motor step extends or retracts the belt by
+# 37.7mm / 200 = 0.1885mm
 
 
 import json
@@ -212,8 +227,21 @@ class OutOfBounds(Exception): pass
 
 UPPER_BASE_LENGTH_MM = 649
 LOWER_BASE_LENGTH_MM = 23
-SLED_IMPLEMENT_X_OFFSET_MM = 11.5
-SLED_IMPLEMENT_Y_OFFSET_MM = 20
+SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM = 11.5
+SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM = 20
+
+# Values to compensate for the unusable area within the trapazoid.
+UPPER_BASE_ENDPOINT_FRAME_VERTICAL_OFFSET_MM = 18.5
+UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM = 14.3
+EASEL_FRAME_WIDTH_MM = 40
+SLED_EDGE_IMPLEMENT_TOP_OFFSET_MM = 28
+SLED_EDGE_IMPLEMENT_HORIZONTAL_OFFSET_MM = 54
+TOP_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_VERTICAL_OFFSET_MM +
+                  EASEL_FRAME_WIDTH_MM +
+                  SLED_EDGE_IMPLEMENT_TOP_OFFSET_MM)
+SIDE_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM +
+                   EASEL_FRAME_WIDTH_MM +
+                   SLED_EDGE_IMPLEMENT_HORIZONTAL_OFFSET_MM)
 
 
 ###############################################################################
@@ -233,17 +261,22 @@ def calc_legs(x, y):
      a ---->|  |<---- a
            \|__|/
 
+    Add the top and side keepouts as fixed offsets.
+
     """
     # The "a" right triangle leg is always the same for both sides.
     # Just square it once now.
-    a2 = math.pow(y - SLED_IMPLEMENT_Y_OFFSET_MM, 2)
+    a2 = math.pow(
+        TOP_KEEPOUT_MM + y - SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM, 2
+    )
 
     # Calculate the left leg.
-    left_b = x - SLED_IMPLEMENT_X_OFFSET_MM
+    left_b = SIDE_KEEPOUT_MM + x - SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM
     left_c = math.sqrt(a2 + math.pow(left_b, 2))
 
     # Calculate the right leg.
-    right_b = UPPER_BASE_LENGTH_MM - left_b - SLED_IMPLEMENT_X_OFFSET_MM
+    right_b = (UPPER_BASE_LENGTH_MM - left_b -
+               SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM * 2)
     right_c = math.sqrt(a2 + math.pow(right_b, 2))
 
     return (left_c, right_c)
@@ -253,17 +286,20 @@ def calc_legs(x, y):
 # Stepper Motor Control
 ###############################################################################
 
-X_AXIS = 'x'
-Y_AXIS = 'y'
+LEFT_STEPPER = 'l'
+RIGHT_STEPPER = 'r'
 # Area reachable by the v2 sled is:
 #  width: 17.25" (~438 mm)
 #  height: 19.125" (~485 mm)
-X_AXIS_MAX = 438
-Y_AXIS_MAX = 485
-DIR_UP = 'up'
-DIR_DOWN = 'down'
-DIR_LEFT = 'left'
-DIR_RIGHT = 'right'
+X_MAX = 438
+Y_MAX = 485
+DIR_RETRACT = 'retract'
+DIR_EXTEND = 'extend'
+MIN_LEFT_LEG_LENGTH_MM, _ = calc_legs(0, 0)
+_, MIN_RIGHT_LEG_LENGTH_MM = calc_legs(X_MAX, 0)
+MAX_LEFT_LEG_LENGTH_MM, _ = calc_legs(X_MAX, Y_MAX)
+_, MAX_RIGHT_LEG_LENGTH_MM = calc_legs(0, Y_MAX)
+LINEAR_DISTANCE_PER_STEP = 0.1885
 
 INTERSTEP_DELAY_MS = 3
 
@@ -282,63 +318,54 @@ RIGHT_STEPPER_STEP_PIN.value(0)
 RIGHT_STEPPER_DIR_PIN = Pin(13, Pin.OUT)
 RIGHT_STEPPER_DIR_PIN.value(1)
 
-
+# Init to home position.
 x_pos = 0
 y_pos = 0
-
+left_leg_length, right_leg_length = calc_legs(x_pos, y_pos)
 
 enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
 disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
 
 
 def pulse_step_pin(step_pin):
+    # Stepper motor has a step angle of 1.8 degrees (200 steps / revolution)
     step_pin.value(1)
     sleep_us(1)
     step_pin.value(0)
     sleep_us(1)
 
 
-def step(axis, direction):
-    """Single-step in the specified axis direction.
+def step(stepper, direction):
+    """Single-step a motor in a direction.
     """
-    global x_pos
-    global y_pos
-    if axis == X_AXIS:
-        if direction == DIR_LEFT:
-            if x_pos == 0:
-                return False
-            x_pos -= 1
-        elif direction == DIR_RIGHT:
-            if x_pos == X_AXIS_MAX:
-                return False
-            x_pos += 1
-        step_pin = LEFT_STEPPER_STEP_PIN
-        dir_pin = LEFT_STEPPER_DIR_PIN
-    else:
-        if direction == DIR_DOWN:
-            if y_pos == 0:
-                return False
-            y_pos -= 1
-        elif direction == DIR_UP:
-            if y_pos == Y_AXIS_MAX:
-                return False
-            y_pos += 1
-        step_pin = RIGHT_STEPPER_STEP_PIN
-        dir_pin = RIGHT_STEPPER_DIR_PIN
+    global left_leg_length
+    global right_leg_length
 
-    dir_pin(0 if direction in (DIR_DOWN, DIR_LEFT) else 1)
+    if stepper == LEFT_STEPPER:
+        if direction == DIR_RETRACT:
+            if left_leg_length <= MIN_LEFT_LEG_LENGTH_MM:
+                return False
+            left_leg_length -= LINEAR_DISTANCE_PER_STEP
+        elif direction == DIR_EXTEND:
+            if left_leg_length >= MAX_LEFT_LEG_LENGTH_MM:
+                return False
+            left_leg_length += LINEAR_DISTANCE_PER_STEP
+        step_pin = LEFT_STEPPER_STEP_PIN
+        LEFT_STEPPER_DIR_PIN(0 if direction == DIR_RETRACT else 1)
+    else:
+        if direction == DIR_RETRACT:
+            if right_leg_length <= MIN_RIGHT_LEG_LENGTH_MM:
+                return False
+            right_leg_length -= LINEAR_DISTANCE_PER_STEP
+        elif direction == DIR_EXTEND:
+            if right_leg_length >= MAX_RIGHT_LEG_LENGTH_MM:
+                return False
+            right_leg_length += LINEAR_DISTANCE_PER_STEP
+        step_pin = RIGHT_STEPPER_STEP_PIN
+        RIGHT_STEPPER_DIR_PIN(0 if direction == DIR_EXTEND else 1)
 
     pulse_step_pin(step_pin)
     return True
-
-
-def multi_step(axis, direction, num_steps):
-    enable_steppers()
-    while num_steps:
-        step(axis, direction)
-        sleep_ms(INTERSTEP_DELAY_MS)
-        num_steps -= 1
-    disable_steppers()
 
 
 is_moving_to_point = False
@@ -346,50 +373,64 @@ is_moving_to_point = False
 def move_to_point(x, y):
     global x_pos
     global y_pos
+    global left_leg_length
+    global right_leg_length
     global is_moving_to_point
 
-    if x > X_AXIS_MAX or y > Y_AXIS_MAX:
+    if x > X_MAX or y > Y_MAX:
         raise OutOfBounds('x,y max is {},{}, got {},{}'.format(
-            X_AXIS_MAX, Y_AXIS_MAX, x, y))
+            X_MAX, Y_MAX, x, y))
 
-    # Discard any specified fractional component and calculate deltas.
-    x = math.floor(x)
-    y = math.floor(y)
-    x_delta = x - x_pos
-    y_delta = y - y_pos
+    # Calculate the new leg lengths and delta from the current.
+    new_left_leg_length, new_right_leg_length = calc_legs(x, y)
+    left_leg_length_delta = new_left_leg_length - left_leg_length
+    right_leg_length_delta = new_right_leg_length - right_leg_length
+
+    if left_leg_length_delta == 0 and right_leg_length_delta == 0:
+        # Nothing to do.
+        return
+
+    # Calculate the number of steps for each motor.
+    num_left_steps = math.floor(
+        abs(left_leg_length_delta / LINEAR_DISTANCE_PER_STEP)
+    )
+    num_right_steps = math.floor(
+        abs(right_leg_length_delta / LINEAR_DISTANCE_PER_STEP)
+    )
 
     # Plan a linear path.
-    max_delta = max(abs(x_delta), abs(y_delta))
-    if max_delta == 0:
-        return
-    x_acc_step_size = x_delta / max_delta
-    y_acc_step_size = y_delta / max_delta
-    x_acc = 0
-    y_acc = 0
+    max_num_steps_delta = max(num_left_steps, num_right_steps)
+    left_leg_acc_step_size = num_left_steps / max_num_steps_delta
+    right_leg_acc_step_size = num_right_steps / max_num_steps_delta
+    left_leg_acc = 0
+    right_leg_acc = 0
 
+    left_steps_remaining = num_left_steps
+    right_steps_remaining = num_right_steps
+    is_moving_to_point = True
     enable_steppers()
-    while x_pos != x or y_pos != y:
-        is_moving_to_point = True
+    while left_steps_remaining or right_steps_remaining:
+        if left_steps_remaining:
+            last_left_leg_acc = left_leg_acc
+            left_leg_acc += left_leg_acc_step_size
+            if math.floor(left_leg_acc) != math.floor(last_left_leg_acc):
+                step(LEFT_STEPPER,
+                     DIR_RETRACT if left_leg_length_delta < 0 else DIR_EXTEND)
+                left_steps_remaining -= 1
 
-        if x_acc_step_size != 0 and x_pos != x:
-            last_x_acc = x_acc
-            x_acc += x_acc_step_size
-            if math.floor(x_acc) != math.floor(last_x_acc):
-                if x_acc_step_size < 0:
-                    step(X_AXIS, DIR_LEFT)
-                elif x_acc_step_size > 0:
-                    step(X_AXIS, DIR_RIGHT)
-
-        if y_acc_step_size != 0 and y_pos != y:
-            last_y_acc = y_acc
-            y_acc += y_acc_step_size
-            if math.floor(y_acc) != math.floor(last_y_acc):
-                if y_acc_step_size < 0:
-                    step(Y_AXIS, DIR_DOWN)
-                elif y_acc_step_size > 0:
-                    step(Y_AXIS, DIR_UP)
+        if right_steps_remaining:
+            last_right_leg_acc = right_leg_acc
+            right_leg_acc += right_leg_acc_step_size
+            if math.floor(right_leg_acc) != math.floor(last_right_leg_acc):
+                step(RIGHT_STEPPER,
+                     DIR_RETRACT if right_leg_length_delta < 0 else DIR_EXTEND)
+                right_steps_remaining -= 1
 
         sleep_ms(INTERSTEP_DELAY_MS)
+
+    # TODO - update the global positions in real time.
+    x_pos = x
+    y_pos = y
     is_moving_to_point = False
     disable_steppers()
 
@@ -431,7 +472,7 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
         # Handle SPACE and unsupported chars by advancing the x position by
         # word_spacing number of steps.
         if char == ' ' or char not in CHARS:
-            multi_step(X_AXIS, DIR_RIGHT, word_spacing)
+            move_to_point(x_pos + word_spacing, y)
             x_offset += word_spacing
             continue
 
@@ -545,7 +586,7 @@ def render_svg(fh):
                 raise AssertionError('Different width/height units: {}/{}'
                                      .format(width_unit, height_unit))
             elif scale is None:
-                scale = math.floor(max(X_AXIS_MAX, Y_AXIS_MAX) / max(width, height))
+                scale = math.floor(max(X_MAX, Y_MAX) / max(width, height))
 
             is_relative = False
             for s in v.split():
@@ -580,7 +621,7 @@ def render_svg(fh):
                 x += math.floor(translate[0])
                 y += math.floor(translate[1])
                 # Invert the y axis.
-                move_to_point(x, Y_AXIS_MAX - y)
+                move_to_point(x, Y_MAX - y)
 
 
 ###############################################################################
@@ -600,14 +641,28 @@ def _reset(request):
 @as_json
 def _status(request):
     data = {
-        'max_position': {
-            'x': X_AXIS_MAX,
-            'y': Y_AXIS_MAX
-        },
-        'current_position': {
+        'position': {
             'x': x_pos,
-            'y': y_pos
+            'y': y_pos,
+            'MAX_X': X_MAX,
+            'MAX_Y': Y_MAX
+
         },
+        'geometry': {
+            'UPPER_BASE_LENGTH_MM': UPPER_BASE_LENGTH_MM,
+            'LOWER_BASE_LENGTH_MM': LOWER_BASE_LENGTH_MM,
+            'SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM':
+              SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM,
+            'SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM':
+              SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM,
+            'MIN_LEFT_LEG_LENGTH_MM': MIN_LEFT_LEG_LENGTH_MM,
+            'MIN_RIGHT_LEG_LENGTH_MM': MIN_RIGHT_LEG_LENGTH_MM,
+            'MAX_LEFT_LEG_LENGTH_MM': MAX_LEFT_LEG_LENGTH_MM,
+            'MAX_RIGHT_LEG_LENGTH_MM': MAX_RIGHT_LEG_LENGTH_MM,
+            'LINEAR_DISTANCE_PER_STEP': LINEAR_DISTANCE_PER_STEP,
+            'left_leg': left_leg_length,
+            'right_leg': right_leg_length
+        }
     }
     return _200(body=data)
 
@@ -647,16 +702,6 @@ def _move_to_point(request, x, y):
     return _200()
 
 
-@route('/multi_step', methods=(GET,), query_param_parser_map={
-    'axis': as_choice(X_AXIS, Y_AXIS),
-    'direction': as_choice(DIR_UP, DIR_DOWN, DIR_LEFT, DIR_RIGHT),
-    'num_steps': as_type(int),
-})
-def _multi_step(request, axis, direction, num_steps):
-    multi_step(axis, direction, num_steps)
-    return _200()
-
-
 _draw_dq = deque((), 512)
 @route('/draw', methods=(GET,))
 @as_websocket
@@ -682,14 +727,15 @@ def _home(request):
     values, moving to point 0,0, and then back up 20 steps to reach the usable
     region.
     """
-    global x_pos
-    global y_pos
-    x_pos = X_AXIS_MAX
-    y_pos = Y_AXIS_MAX
     move_to_point(0, 0)
-    move_to_point(20, 20)
-    x_pos = 0
-    y_pos = 0
+    return _200()
+
+
+@route('/move_to_center', methods=(GET,))
+def _move_to_center(request):
+    """Move to the center.
+    """
+    move_to_point(X_MAX / 2, Y_MAX / 2)
     return _200()
 
 

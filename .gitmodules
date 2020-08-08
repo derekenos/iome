@@ -13,3 +13,6 @@
 [submodule "appliances/sketchy/micropython-docker"]
 	path = appliances/sketchy/micropython-docker
 	url = https://github.com/derekenos/micropython-docker.git
+[submodule "appliances/weezel/micropython-docker"]
+	path = appliances/weezel/micropython-docker
+	url = https://github.com/derekenos/micropython-docker.git
