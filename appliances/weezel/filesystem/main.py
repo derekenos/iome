@@ -1,93 +1,7 @@
+# -*- coding: utf-8 -*-
 
-import json
-import machine
-import math
-from collections import deque
-from machine import (
-    Pin,
-    Timer,
-)
-from utime import (
-    sleep_ms,
-    sleep_us,
-)
-
-from fonts import char_def_to_points
-from fonts.default import CHARS
-
-from lib.femtoweb import default_http_endpoints
-from lib.femtoweb.server import (
-    _200,
-    _400,
-    GET,
-    POST,
-    as_choice,
-    as_json,
-    as_maybe,
-    as_type,
-    as_websocket,
-    as_with_default,
-    route,
-    send,
-    serve,
-)
-
-
-###############################################################################
-# Exceptions
-###############################################################################
-
-class OutOfBounds(Exception): pass
-
-
-###############################################################################
-# Stepper Motor Control
-###############################################################################
-
-X_AXIS = 'x'
-Y_AXIS = 'y'
-# Area reachable by the v2 sled is:
-#  width: 17.25" (~438 mm)
-#  height: 19.125" (~485 mm)
-X_AXIS_MAX = 438
-Y_AXIS_MAX = 485
-DIR_UP = 'up'
-DIR_DOWN = 'down'
-DIR_LEFT = 'left'
-DIR_RIGHT = 'right'
-
-INTERSTEP_DELAY_MS = 3
-
-STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
-STEPPER_NOT_ENABLE_PIN.value(1)
-
-LEFT_STEPPER_STEP_PIN = Pin(4, Pin.OUT)
-LEFT_STEPPER_STEP_PIN.value(0)
-
-LEFT_STEPPER_DIR_PIN = Pin(2, Pin.OUT)
-LEFT_STEPPER_DIR_PIN.value(1)
-
-RIGHT_STEPPER_STEP_PIN = Pin(15, Pin.OUT)
-RIGHT_STEPPER_STEP_PIN.value(0)
-
-RIGHT_STEPPER_DIR_PIN = Pin(13, Pin.OUT)
-RIGHT_STEPPER_DIR_PIN.value(1)
-
-
-x_pos = 0
-y_pos = 0
-
-
-enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
-disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
-
-
-def pulse_step_pin(step_pin):
-    step_pin.value(1)
-    sleep_us(1)
-    step_pin.value(0)
-    sleep_us(1)
-
+"""Weezel - a CNC add-on toy for the Ikea Mala easel
+"""
 
 # Kinematics is the name for how to calculate what we should do to the motors
 # to get where we want to go.
@@ -173,6 +87,215 @@ def pulse_step_pin(step_pin):
 # ^                                       ^
 # |_______________ 25 9.16" ______________|
 #
+#
+# As a young lad, I couldn't understand what practical application the geometry
+# I was being taught could have in MY life. I cared about industrial music, not
+# shapes. As an old man trying to make technology move things in the physical
+# world, I've come to appreciate all those shapes. Maybe schools should teach
+# geometry as part of the process of designing of physical actuating
+# mechanisms. Making things move is so exciting and engaging!
+#
+# Before we calculate anything, let's consider again what we got:
+#            ____________
+#            \          /
+#             \        /
+#              \      /
+#               \____/
+#
+# That looks nice. To assist in our calculations, let's create two right
+# triangles by drawing verticals lines from the limits of the lower base to the
+# upper:
+#            ____________
+#            \   |  |   /
+#             \  |  |  /
+#              \ |  | /
+#               \|__|/
+#
+# Most of the dimensions here are known:
+#
+#
+# desired -> ______   || upper base length
+# x axis     _________\/_
+# position   \   |  |   /
+#             \  |  |<----- desired Y axis position
+#              \ |  | /
+#               \|__|/
+#                 /\
+#                 || lower base length
+#
+# Here are the things we need to calculate:
+#
+#            ____________
+#            \   |  |   /
+# left leg -> \  |  |  / <- right leg
+# length       \ |  | /     length
+#               \|__|/
+#
+# Thanks to Pythagoras, we know that the sides of a right triangle have the
+# following property: a² + b² = c²
+#
+# where:
+#              b
+#            ____
+#            \   |
+#             \  | a
+#           c  \ |
+#               \|
+#
+# This is a good time to mention how the sled geometry related this these
+# triangles. Here's where the sled and its writing implement are located:
+#            ____________
+#            \   |  |   /
+#             \  |  |  /
+#              \ |  | /
+#               \|__|/
+#             __/    \__ <- sled belt catch
+#            \          /
+#             \  (  )<----- writing implement
+#              `.    .`
+#                `..`
+#
+# What we really want to do is calculate the position of the writing implement,
+# which has a fixed x/y offset from either end of the lower trapezoidal base.
+# These values are known from the sled geometry and are as follows:
+#
+#  X Offset: 11.5 mm
+#  Y Offset: ~20 mm (depends on the thickness of the chalk / pen / etc.)
+#
+# We'll do the actual calculation in the function called calc_legs()
+
+
+import json
+import machine
+import math
+from collections import deque
+from machine import (
+    Pin,
+    Timer,
+)
+from utime import (
+    sleep_ms,
+    sleep_us,
+)
+
+from fonts import char_def_to_points
+from fonts.default import CHARS
+
+from lib.femtoweb import default_http_endpoints
+from lib.femtoweb.server import (
+    _200,
+    _400,
+    GET,
+    POST,
+    as_choice,
+    as_json,
+    as_maybe,
+    as_type,
+    as_websocket,
+    as_with_default,
+    route,
+    send,
+    serve,
+)
+
+
+###############################################################################
+# Exceptions
+###############################################################################
+
+class OutOfBounds(Exception): pass
+
+
+###############################################################################
+# Geometric Constants
+###############################################################################
+
+UPPER_BASE_LENGTH_MM = 649
+LOWER_BASE_LENGTH_MM = 23
+SLED_IMPLEMENT_X_OFFSET_MM = 11.5
+SLED_IMPLEMENT_Y_OFFSET_MM = 20
+
+
+###############################################################################
+# Geometric Functions
+###############################################################################
+
+def calc_legs(x, y):
+    """Return the length of each trapezoidal leg as the tuple:
+    ( <left-leg-length-mm>, <right-leg-length-mm> )
+
+    Assuming the following geometry:
+
+       b ||      || b
+        _\/______\/_
+        \   |  |   /
+    c -> \  |  |  / <- c
+     a ---->|  |<---- a
+           \|__|/
+
+    """
+    # The "a" right triangle leg is always the same for both sides.
+    # Just square it once now.
+    a2 = math.pow(y - SLED_IMPLEMENT_Y_OFFSET_MM, 2)
+
+    # Calculate the left leg.
+    left_b = x - SLED_IMPLEMENT_X_OFFSET_MM
+    left_c = math.sqrt(a2 + math.pow(left_b, 2))
+
+    # Calculate the right leg.
+    right_b = UPPER_BASE_LENGTH_MM - left_b - SLED_IMPLEMENT_X_OFFSET_MM
+    right_c = math.sqrt(a2 + math.pow(right_b, 2))
+
+    return (left_c, right_c)
+
+
+###############################################################################
+# Stepper Motor Control
+###############################################################################
+
+X_AXIS = 'x'
+Y_AXIS = 'y'
+# Area reachable by the v2 sled is:
+#  width: 17.25" (~438 mm)
+#  height: 19.125" (~485 mm)
+X_AXIS_MAX = 438
+Y_AXIS_MAX = 485
+DIR_UP = 'up'
+DIR_DOWN = 'down'
+DIR_LEFT = 'left'
+DIR_RIGHT = 'right'
+
+INTERSTEP_DELAY_MS = 3
+
+STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
+STEPPER_NOT_ENABLE_PIN.value(1)
+
+LEFT_STEPPER_STEP_PIN = Pin(4, Pin.OUT)
+LEFT_STEPPER_STEP_PIN.value(0)
+
+LEFT_STEPPER_DIR_PIN = Pin(2, Pin.OUT)
+LEFT_STEPPER_DIR_PIN.value(1)
+
+RIGHT_STEPPER_STEP_PIN = Pin(15, Pin.OUT)
+RIGHT_STEPPER_STEP_PIN.value(0)
+
+RIGHT_STEPPER_DIR_PIN = Pin(13, Pin.OUT)
+RIGHT_STEPPER_DIR_PIN.value(1)
+
+
+x_pos = 0
+y_pos = 0
+
+
+enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
+disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
+
+
+def pulse_step_pin(step_pin):
+    step_pin.value(1)
+    sleep_us(1)
+    step_pin.value(0)
+    sleep_us(1)
 
 
 def step(axis, direction):
