@@ -64,9 +64,8 @@ def char_def_to_points(char_def):
     # Subtract the number of leading empty columns from the x coordinate values
     # and invert the y axis coordinates to place the grid origin at the
     # bottom left.
-    num_rows = len(rows)
     order_char_coord_tuples = [
-        (order_char, (x - min_nonempty_col_num, num_rows - 1 - y))
+        (order_char, (x - min_nonempty_col_num, y))
         for (order_char, (x, y)) in order_char_coord_tuples
     ]
 

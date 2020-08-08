@@ -292,7 +292,7 @@ RIGHT_STEPPER = 'r'
 #  width: 17.25" (~438 mm)
 #  height: 19.125" (~485 mm)
 X_MAX = 438
-Y_MAX = 485
+Y_MAX = 400
 DIR_RETRACT = 'retract'
 DIR_EXTEND = 'extend'
 MIN_LEFT_LEG_LENGTH_MM, _ = calc_legs(0, 0)
@@ -301,7 +301,7 @@ MAX_LEFT_LEG_LENGTH_MM, _ = calc_legs(X_MAX, Y_MAX)
 _, MAX_RIGHT_LEG_LENGTH_MM = calc_legs(0, Y_MAX)
 LINEAR_DISTANCE_PER_STEP = 0.1885
 
-INTERSTEP_DELAY_MS = 3
+INTERSTEP_DELAY_MS = 2
 
 STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
 STEPPER_NOT_ENABLE_PIN.value(1)
@@ -472,7 +472,7 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
         # Handle SPACE and unsupported chars by advancing the x position by
         # word_spacing number of steps.
         if char == ' ' or char not in CHARS:
-            move_to_point(x_pos + word_spacing, y)
+            move_to_point(x_pos + word_spacing, y_pos)
             x_offset += word_spacing
             continue
 
@@ -485,7 +485,7 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
         # Add a sprue directly below the character entry point.
         sprue_coord = points[0]
         # Move all the points up one to make room for the sprue.
-        points = [(x, y + 1) for x, y in points]
+        points = [(x, y - 1) for x, y in points]
         points = [sprue_coord] + points + [sprue_coord]
 
         # Apply the scaling.
@@ -674,7 +674,21 @@ def index(request):
 
 @route('/demo', methods=(GET,))
 def _demo(request):
-    draw_text('SKETCHY FOR LIFE', char_height=64, x_offset=0, y_offset=300)
+    draw_text('WEEZEL', char_height=64, char_spacing=16, x_offset=0,
+              y_offset=Y_MAX / 2 - 64)
+    return _200()
+
+
+@route('/trace_perimeter', methods=(GET,))
+def _trace_perimeter(request):
+    for x, y in (
+            (0, 0),
+            (0, Y_MAX),
+            (X_MAX, Y_MAX),
+            (X_MAX, 0),
+            (0, 0),
+    ):
+        move_to_point(x, y)
     return _200()
 
 
