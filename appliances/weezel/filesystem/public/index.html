@@ -25,7 +25,7 @@
         //   const canvasX = e.pageX - el.offsetLeft
         //   const canvasY = e.pageY - el.offsetTop
         //   const deviceX = canvasX
-        //   const deviceY = yMax - canvasY
+        //   const deviceY = canvasY
         //   ctx.lineTo(canvasX, canvasY)
         //   ctx.stroke()
         //   fetch(`/move_to_point?x=${deviceX}&y=${deviceY}`)
@@ -58,7 +58,7 @@
           const canvasX = pageX - el.offsetLeft
           const canvasY = pageY - el.offsetTop
           const deviceX = canvasX
-          const deviceY = yMax - canvasY
+          const deviceY = canvasY
           ctx.lineTo(canvasX, canvasY)
           ctx.stroke()
           const payload = JSON.stringify([deviceX, deviceY])
@@ -75,12 +75,12 @@
         fetch('/status').then(
           response => response.json().then(
             data => {
-              xMax = data.max_position.x
-              yMax = data.max_position.y
+              xMax = data.position.MAX_X
+              yMax = data.position.MAX_Y
               canvas.width = xMax
               canvas.height = yMax
               ctx.beginPath()
-              ctx.moveTo(0, yMax)
+              ctx.moveTo(0, 0)
             }
           )
         )
