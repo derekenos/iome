@@ -301,7 +301,7 @@ MAX_LEFT_LEG_LENGTH_MM, _ = calc_legs(X_MAX, Y_MAX)
 _, MAX_RIGHT_LEG_LENGTH_MM = calc_legs(0, Y_MAX)
 LINEAR_DISTANCE_PER_STEP = 0.1885
 
-INTERSTEP_DELAY_MS = 2
+INTERSTEP_DELAY_MS = 6
 
 STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
 STEPPER_NOT_ENABLE_PIN.value(1)
@@ -381,14 +381,14 @@ def move_to_point(x, y):
         raise OutOfBounds('x,y max is {},{}, got {},{}'.format(
             X_MAX, Y_MAX, x, y))
 
+    if x == x_pos and y == y_pos:
+        # Nothing to do.
+        return
+
     # Calculate the new leg lengths and delta from the current.
     new_left_leg_length, new_right_leg_length = calc_legs(x, y)
     left_leg_length_delta = new_left_leg_length - left_leg_length
     right_leg_length_delta = new_right_leg_length - right_leg_length
-
-    if left_leg_length_delta == 0 and right_leg_length_delta == 0:
-        # Nothing to do.
-        return
 
     # Calculate the number of steps for each motor.
     num_left_steps = math.floor(
@@ -397,6 +397,10 @@ def move_to_point(x, y):
     num_right_steps = math.floor(
         abs(right_leg_length_delta / LINEAR_DISTANCE_PER_STEP)
     )
+
+    if num_left_steps == 0 and num_right_steps == 0:
+        # All deltas are smaller than a single step.
+        return
 
     # Plan a linear path.
     max_num_steps_delta = max(num_left_steps, num_right_steps)
@@ -523,7 +527,7 @@ def render_svg(fh):
     height_unit = None
     scale = None
 
-    NUMBER_UNIT_REGEX = re.compile('^(\d+)(.*)$')
+    NUMBER_UNIT_REGEX = re.compile('^(\d+(?:\.\d+)?)(.*)$')
     parse_number_unit = lambda s: NUMBER_UNIT_REGEX.match(s)
 
     FLOAT_RE_PATTERN = '\-?\d+(?:\.\d+)?'
@@ -620,8 +624,12 @@ def render_svg(fh):
                 # Apply the current cumulative translations.
                 x += math.floor(translate[0])
                 y += math.floor(translate[1])
-                # Invert the y axis.
-                move_to_point(x, Y_MAX - y)
+
+                # Apply scaling.
+                x *= scale
+                y *= scale
+
+                move_to_point(x, y)
 
 
 ###############################################################################
