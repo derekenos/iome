@@ -678,8 +678,11 @@ def execute_gcode(fh):
 
         if y is None:
             y = y_pos
-        elif mode == MODES.INCREMENTAL:
-            y += y_pos
+        else:
+            # Invert the specified Y to match our orientation.
+            y = -y
+            if mode == MODES.INCREMENTAL:
+                y += y_pos
 
         if z is None:
             z = z_pos
