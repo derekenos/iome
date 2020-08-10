@@ -184,7 +184,7 @@ import json
 import machine
 import math
 import os
-from time import time
+import time
 from collections import deque
 from machine import (
     Pin,
@@ -204,6 +204,7 @@ from lib.femtoweb.server import (
     _400,
     GET,
     POST,
+    PUT,
     as_choice,
     as_json,
     as_maybe,
@@ -642,62 +643,74 @@ def render_svg(fh):
 
 def execute_gcode(fh):
     class UNITS:
-        INCH = 0
-        MILLIMETER = 1
+        INCHES = 0
+        MILLIMETERS = 1
 
     class MODES:
         ABSOLUTE = 0
         INCREMENTAL = 1
 
-    # TODO - implement global z_pos
+    # TODO - implement z-axis control
     z_pos = 0
 
     units = None
     mode = None
 
-    inch_to_mm = lambda x: x * 25.4
+    inch_to_mm = lambda x: (x * 25.4) if x is not None else None
 
     def _assert_ready_to_move():
         if units is None or mode is None:
             raise AssertionError('units ({}) and/or mode ({}) is None'
                                  .format(units, mode))
 
-    for command, params in gcode.parse_file(fh):
-        if command == COMMANDS.PROGRAMMING_IN_INCHES:
-            units = UNITS.INCH
+    def calc_xyz_from_params(params):
+        x = params.get('X')
+        y = params.get('Y')
+        z = params.get('Z')
 
-        elif command == COMMANDS.PROGRAMMING_IN_MILLIMETERS:
-            units = UNITS.MILLIMETER
+        if units == UNITS.INCHES:
+            x, y, z = map(inch_to_mm, (x, y, z))
+
+        if x is None:
+            x = x_pos
+        elif mode == MODES.INCREMENTAL:
+            x += x_pos
+
+        if y is None:
+            y = y_pos
+        elif mode == MODES.INCREMENTAL:
+            y += y_pos
+
+        if z is None:
+            z = z_pos
+        elif mode == MODES.INCREMENTAL:
+            z += z_pos
+
+        return x, y, z
+
+    for line in fh:
+        command, params = gcode.parse_line(line)
+        if command == gcode.COMMANDS.PROGRAMMING_IN_INCHES:
+            units = UNITS.INCHES
+
+        elif command == gcode.COMMANDS.PROGRAMMING_IN_MILLIMETERS:
+            units = UNITS.MILLIMETERS
             pass
 
-        elif command == COMMANDS.ABSOLUTE_PROGRAMMING:
+        elif command == gcode.COMMANDS.ABSOLUTE_PROGRAMMING:
             mode = MODES.ABSOLUTE
 
-        elif command == COMMANDS.INCREMENTAL_PROGRAMMING:
+        elif command == gcode.COMMANDS.INCREMENTAL_PROGRAMMING:
             mode = MODES.INCREMENTAL
 
         elif command == gcode.COMMANDS.RAPID_POSITIONING:
             _assert_ready_to_move()
-            x = params['x']
-            y = params['y']
-            if units == UNITS.INCHES:
-                x = inch_to_mm(x)
-                y = inch_to_mm(y)
-            if mode == MODES.INCREMENTAL:
-                x += x_pos
-                y += x_pos
+            x, y, _ = calc_xyz_from_params(params)
             move_to_point(x, y)
 
         elif command == gcode.COMMANDS.LINEAR_INTERPOLATION:
             _assert_ready_to_move()
-            x = params['x']
-            y = params['y']
-            if units == UNITS.INCHES:
-                x = inch_to_mm(x)
-                y = inch_to_mm(y)
-            if mode == MODES.INCREMENTAL:
-                x += x_pos
-                y += x_pos
+            x, y, z = calc_xyz_from_params(params)
             move_to_point(x, y)
 
         # Ignore all other commands

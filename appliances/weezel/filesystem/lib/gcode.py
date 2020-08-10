@@ -2,7 +2,7 @@
 """
 
 import re
-from collections import deque
+from collections import namedtuple
 
 
 # Define the supported commands that we'll decode.
@@ -15,42 +15,93 @@ class COMMANDS:
     PROGRAMMING_IN_MILLIMETERS = 5
     ABSOLUTE_PROGRAMMING = 6
     INCREMENTAL_PROGRAMMING = 7
-    UNSUPPORTED  = 8
+    UNSUPPORTED = 8
+
+    @staticmethod
+    def get_name(id):
+        """Helper to do a reverse lookup on the integer command ID.
+        """
+        for k in dir(COMMANDS):
+            if not k.startswith('__'):
+                v = getattr(COMMANDS, k)
+                if isinstance(v, int) and v == id:
+                    return k
 
 
 # Define regular expressions to parse values from each supported command type.
-DECIMAL_REGEX_STR = '\-?\d+(?:\.\d+)?'
-DecimalVariableRegexStr = lambda symbol, name: '{}(?P<{}>{})'.format(
-    symbol,
-    name,
+COMMENT_REGEX_STR = '(\s*;\s*.*)'
+DECIMAL_REGEX_STR = '(\-?\d+(\.\d+)?)'
+DecimalParamRegexStr = lambda var: '(({}){})'.format(
+    var,
     DECIMAL_REGEX_STR,
 )
 
+
 COMMAND_REGEX_MAP = {
     COMMANDS.EMPTY: re.compile('^$'),
-    COMMANDS.COMMENT: re.compile('^;\s*(?P<text>.*)$'),
+    COMMANDS.COMMENT: re.compile(
+        '^{}$'.format(COMMENT_REGEX_STR)
+    ),
 
     COMMANDS.RAPID_POSITIONING: re.compile(
-        '^G0\s{}\s{}$'.format(
-            DecimalVariableRegexStr('X', 'x'),
-            DecimalVariableRegexStr('Y', 'y'),
+        '^G0\s({})\s({}){}?$'.format(
+            DecimalParamRegexStr('X'),
+            DecimalParamRegexStr('Y'),
+            COMMENT_REGEX_STR,
         )
     ),
 
     COMMANDS.LINEAR_INTERPOLATION: re.compile(
-        '^G1(?:\s{})?(?:\s{})?(?:\s{})?(?:\s{})?$'.format(
-            DecimalVariableRegexStr('X', 'x'),
-            DecimalVariableRegexStr('Y', 'y'),
-            DecimalVariableRegexStr('Z', 'z'),
-            DecimalVariableRegexStr('F', 'feed_rate'),
+        '^G1(\s{})?(\s{})?(\s{})?(\s{})?{}?$'.format(
+            DecimalParamRegexStr('X'),
+            DecimalParamRegexStr('Y'),
+            DecimalParamRegexStr('Z'),
+            DecimalParamRegexStr('F'),
+            COMMENT_REGEX_STR,
         )
     ),
 
-    COMMANDS.PROGRAMMING_IN_INCHES: re.compile('^G20$'),
-    COMMANDS.PROGRAMMING_IN_MILLIMETERS: re.compile('^G21$'),
-    COMMANDS.ABSOLUTE_PROGRAMMING: re.compile('^G90$'),
-    COMMANDS.INCREMENTAL_PROGRAMMING: re.compile('^G91$'),
+    COMMANDS.PROGRAMMING_IN_INCHES: re.compile(
+        '^G20{}?$'.format(COMMENT_REGEX_STR)
+    ),
+
+    COMMANDS.PROGRAMMING_IN_MILLIMETERS: re.compile(
+        '^G21{}?$'.format(COMMENT_REGEX_STR)
+    ),
+
+    COMMANDS.ABSOLUTE_PROGRAMMING: re.compile(
+        '^G90{}?$'.format(COMMENT_REGEX_STR)
+    ),
+
+    COMMANDS.INCREMENTAL_PROGRAMMING: re.compile(
+        '^G91{}?$'.format(COMMENT_REGEX_STR)
+    ),
 }
+
+COMMANDS_WITH_PACKED_PARAMS = (
+    COMMANDS.RAPID_POSITIONING,
+    COMMANDS.LINEAR_INTERPOLATION,
+)
+
+
+def unpack_matched_command_params(match):
+    """Micropython doesn't support named or non-capturing RE groups so
+    we need to jump through flaming hoops to recover the parameter values.
+    """
+    # Init i to point at the first captured param name group.
+    i = 3
+    params = {}
+    while True:
+        try:
+            param_name = match.group(i)
+        except IndexError:
+            break
+        if param_name is not None:
+            param_value = float(match.group(i + 1))
+            params[param_name] = param_value
+        # Increment i to what would be the next param name group.
+        i += 5
+    return params
 
 
 def parse_line(line):
@@ -60,13 +111,12 @@ def parse_line(line):
     line = line.strip()
     for command, regex in COMMAND_REGEX_MAP.items():
         match = regex.match(line)
+        params = {}
         if match:
-            params = match.groupdict()
-            if command != COMMANDS.COMMENT:
-                # Convert numerical params.
-                params = {k: float(v) if v is not None else v for k, v in params.items()}
+            if command in COMMANDS_WITH_PACKED_PARAMS:
+                params = unpack_matched_command_params(match)
             return command, params
-    return COMMANDS.UNSUPPORTED, {}
+    return COMMANDS.UNSUPPORTED, params
 
 
 def parse(fh):
@@ -86,94 +136,70 @@ def _assert(actual, expected):
         raise AssertionError('expected: {}, got: {}'.format(actual, expected))
 
 
-def test_DECIMAL_REGEX_STR():
-    for value, expected in (
-            ('', None),
-            ('0', '0'),
-            ('1', '1'),
-            ('-1', '-1'),
-            ('0.01', '0.01'),
-            ('-0.01', '-0.01'),
-        ):
-        actual = re.match(DECIMAL_REGEX_STR, value)
-        if actual is not None:
-            actual = actual.group(0)
-        _assert(actual, expected)
-
-
-def test_DecimalVariableRegexStr():
-    for symbol, name, value, expected in (
-            ('X', 'x', '', None),
-            ('X', 'x', 'Y1', None),
-            ('X', 'x', 'x1', None),
-            ('X', 'x', 'X1', { 'x': '1' }),
-            ('X', 'x', 'X1.0', { 'x': '1.0' }),
-            ('X', 'x', 'X-1.0', { 'x': '-1.0' }),
-            ('F', 'feed_rate', 'F20', { 'feed_rate': '20' }),
-            ('F', 'feed_rate', 'F20.6', { 'feed_rate': '20.6' }),
-        ):
-        actual = re.match(DecimalVariableRegexStr(symbol, name), value)
-        if actual is not None:
-            actual = actual.groupdict()
-        _assert(actual, expected)
-
-
 def test_parse_line():
     for line, expected in (
             ('', (COMMANDS.EMPTY, {})),
             (' ', (COMMANDS.EMPTY, {})),
-            ('; A comment', (COMMANDS.COMMENT, { 'text': 'A comment' })),
+            ('; A comment', (COMMANDS.COMMENT, {})),
 
             ('G0 X20.2 Y30.3', (COMMANDS.RAPID_POSITIONING, {
-                'x': float('20.2'),
-                'y': float('30.3')
+                'X': float('20.2'),
+                'Y': float('30.3')
+            })),
+
+            ('G0 X20.2 Y30.3 ; with a comment', (COMMANDS.RAPID_POSITIONING, {
+                'X': float('20.2'),
+                'Y': float('30.3')
             })),
 
             ('G1 X10.1 Y40.4',
              (COMMANDS.LINEAR_INTERPOLATION, {
-                 'x': float('10.1'),
-                 'y': float('40.4'),
-                 'z': None,
-                 'feed_rate': None,
+                 'X': float('10.1'),
+                 'Y': float('40.4'),
+             })),
+
+            ('G1 X10.1 Y40.4 ; with a comment',
+             (COMMANDS.LINEAR_INTERPOLATION, {
+                 'X': float('10.1'),
+                 'Y': float('40.4'),
              })),
 
             ('G1 X-10.1 Y-40.4 Z20',
              (COMMANDS.LINEAR_INTERPOLATION, {
-                 'x': float('-10.1'),
-                 'y': float('-40.4'),
-                 'z': float('20'),
-                 'feed_rate': None,
+                 'X': float('-10.1'),
+                 'Y': float('-40.4'),
+                 'Z': float('20'),
              })),
 
             ('G1 X-10.1 Y-40.4 Z20 F30',
              (COMMANDS.LINEAR_INTERPOLATION, {
-                 'x': float('-10.1'),
-                 'y': float('-40.4'),
-                 'z': float('20'),
-                 'feed_rate': float('30'),
+                 'X': float('-10.1'),
+                 'Y': float('-40.4'),
+                 'Z': float('20'),
+                 'F': float('30'),
              })),
 
             ('G1 Z20',
              (COMMANDS.LINEAR_INTERPOLATION, {
-                 'x': None,
-                 'y': None,
-                 'z': float('20'),
-                 'feed_rate': None,
+                 'Z': float('20'),
              })),
 
             ('G1 Z20 F30',
              (COMMANDS.LINEAR_INTERPOLATION, {
-                 'x': None,
-                 'y': None,
-                 'z': float('20'),
-                 'feed_rate': float('30'),
+                 'Z': float('20'),
+                 'F': float('30'),
              })),
 
             ('G20', (COMMANDS.PROGRAMMING_IN_INCHES, {})),
             ('G21', (COMMANDS.PROGRAMMING_IN_MILLIMETERS, {})),
             ('G90', (COMMANDS.ABSOLUTE_PROGRAMMING, {})),
             ('G91', (COMMANDS.INCREMENTAL_PROGRAMMING, {})),
-        ):
+
+            ('G20 ; with a comment', (COMMANDS.PROGRAMMING_IN_INCHES, {})),
+            ('G21 ; with a comment', (COMMANDS.PROGRAMMING_IN_MILLIMETERS, {})),
+            ('G90 ; with a comment', (COMMANDS.ABSOLUTE_PROGRAMMING, {})),
+            ('G91 ; with a comment', (COMMANDS.INCREMENTAL_PROGRAMMING, {})),
+    ):
         _assert(parse_line(line), expected)
 
 
@@ -197,8 +223,9 @@ def run_tests():
 
 def parse_file(fh):
     for line in fh:
-        result = parse_line(line)
-        print('"{}" => {}'.format(line.strip(), result))
+        command, params = parse_line(line)
+        command = COMMANDS.get_name(command)
+        print('"{}" => {}'.format(line.strip(), (command, params)))
 
 
 if __name__ == '__main__':
