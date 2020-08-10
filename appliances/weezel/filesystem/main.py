@@ -183,6 +183,8 @@
 import json
 import machine
 import math
+import os
+from time import time
 from collections import deque
 from machine import (
     Pin,
@@ -212,6 +214,8 @@ from lib.femtoweb.server import (
     send,
     serve,
 )
+
+from lib import gcode
 
 
 ###############################################################################
@@ -633,6 +637,73 @@ def render_svg(fh):
 
 
 ###############################################################################
+# Gcode Handler
+###############################################################################
+
+def execute_gcode(fh):
+    class UNITS:
+        INCH = 0
+        MILLIMETER = 1
+
+    class MODES:
+        ABSOLUTE = 0
+        INCREMENTAL = 1
+
+    # TODO - implement global z_pos
+    z_pos = 0
+
+    units = None
+    mode = None
+
+    inch_to_mm = lambda x: x * 25.4
+
+    def _assert_ready_to_move():
+        if units is None or mode is None:
+            raise AssertionError('units ({}) and/or mode ({}) is None'
+                                 .format(units, mode))
+
+    for command, params in gcode.parse_file(fh):
+        if command == COMMANDS.PROGRAMMING_IN_INCHES:
+            units = UNITS.INCH
+
+        elif command == COMMANDS.PROGRAMMING_IN_MILLIMETERS:
+            units = UNITS.MILLIMETER
+            pass
+
+        elif command == COMMANDS.ABSOLUTE_PROGRAMMING:
+            mode = MODES.ABSOLUTE
+
+        elif command == COMMANDS.INCREMENTAL_PROGRAMMING:
+            mode = MODES.INCREMENTAL
+
+        elif command == gcode.COMMANDS.RAPID_POSITIONING:
+            _assert_ready_to_move()
+            x = params['x']
+            y = params['y']
+            if units == UNITS.INCHES:
+                x = inch_to_mm(x)
+                y = inch_to_mm(y)
+            if mode == MODES.INCREMENTAL:
+                x += x_pos
+                y += x_pos
+            move_to_point(x, y)
+
+        elif command == gcode.COMMANDS.LINEAR_INTERPOLATION:
+            _assert_ready_to_move()
+            x = params['x']
+            y = params['y']
+            if units == UNITS.INCHES:
+                x = inch_to_mm(x)
+                y = inch_to_mm(y)
+            if mode == MODES.INCREMENTAL:
+                x += x_pos
+                y += x_pos
+            move_to_point(x, y)
+
+        # Ignore all other commands
+
+
+###############################################################################
 # Route Handlers
 ###############################################################################
 
@@ -767,6 +838,20 @@ def _move_to_center(request):
 def _demo_svg(request, filename):
     fh = open(filename, 'r')
     render_svg(fh)
+    return _200()
+
+
+@route('/execute_gcode', methods=(PUT,))
+def _execute_gcode(request):
+    # Upload the file to a temporary location.
+    file_path = '/tmp/gcode.{}'.format(time.time())
+    default_http_endpoints._fs_PUT(file_path, request)
+    try:
+        with open(file_path, 'r') as fh:
+            execute_gcode(fh)
+    finally:
+        # Delete the temporary file.
+        os.remove(file_path)
     return _200()
 
 

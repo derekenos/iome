@@ -3,24 +3,20 @@
 
 import re
 from collections import deque
-from decimal import Decimal
-from enum import Enum
-from argparse import (
-    ArgumentParser,
-    FileType,
-)
 
 
 # Define the supported commands that we'll decode.
-COMMANDS = Enum('Commands', (
-    'EMPTY',
-    'COMMENT',
-    'RAPID_POSITIONING',
-    'LINEAR_INTERPOLATION',
-    'PROGRAMMING_IN_INCHES',
-    'PROGRAMMING_IN_MILLIMETERS',
-    'UNSUPPORTED',
-))
+class COMMANDS:
+    EMPTY = 0
+    COMMENT = 1
+    RAPID_POSITIONING = 2
+    LINEAR_INTERPOLATION = 3
+    PROGRAMMING_IN_INCHES = 4
+    PROGRAMMING_IN_MILLIMETERS = 5
+    ABSOLUTE_PROGRAMMING = 6
+    INCREMENTAL_PROGRAMMING = 7
+    UNSUPPORTED  = 8
+
 
 # Define regular expressions to parse values from each supported command type.
 DECIMAL_REGEX_STR = '\-?\d+(?:\.\d+)?'
@@ -52,6 +48,8 @@ COMMAND_REGEX_MAP = {
 
     COMMANDS.PROGRAMMING_IN_INCHES: re.compile('^G20$'),
     COMMANDS.PROGRAMMING_IN_MILLIMETERS: re.compile('^G21$'),
+    COMMANDS.ABSOLUTE_PROGRAMMING: re.compile('^G90$'),
+    COMMANDS.INCREMENTAL_PROGRAMMING: re.compile('^G91$'),
 }
 
 
@@ -66,7 +64,7 @@ def parse_line(line):
             params = match.groupdict()
             if command != COMMANDS.COMMENT:
                 # Convert numerical params.
-                params = {k: Decimal(v) if v is not None else v for k, v in params.items()}
+                params = {k: float(v) if v is not None else v for k, v in params.items()}
             return command, params
     return COMMANDS.UNSUPPORTED, {}
 
@@ -127,39 +125,39 @@ def test_parse_line():
             ('; A comment', (COMMANDS.COMMENT, { 'text': 'A comment' })),
 
             ('G0 X20.2 Y30.3', (COMMANDS.RAPID_POSITIONING, {
-                'x': Decimal('20.2'),
-                'y': Decimal('30.3')
+                'x': float('20.2'),
+                'y': float('30.3')
             })),
 
             ('G1 X10.1 Y40.4',
              (COMMANDS.LINEAR_INTERPOLATION, {
-                 'x': Decimal('10.1'),
-                 'y': Decimal('40.4'),
+                 'x': float('10.1'),
+                 'y': float('40.4'),
                  'z': None,
                  'feed_rate': None,
              })),
 
             ('G1 X-10.1 Y-40.4 Z20',
              (COMMANDS.LINEAR_INTERPOLATION, {
-                 'x': Decimal('-10.1'),
-                 'y': Decimal('-40.4'),
-                 'z': Decimal('20'),
+                 'x': float('-10.1'),
+                 'y': float('-40.4'),
+                 'z': float('20'),
                  'feed_rate': None,
              })),
 
             ('G1 X-10.1 Y-40.4 Z20 F30',
              (COMMANDS.LINEAR_INTERPOLATION, {
-                 'x': Decimal('-10.1'),
-                 'y': Decimal('-40.4'),
-                 'z': Decimal('20'),
-                 'feed_rate': Decimal('30'),
+                 'x': float('-10.1'),
+                 'y': float('-40.4'),
+                 'z': float('20'),
+                 'feed_rate': float('30'),
              })),
 
             ('G1 Z20',
              (COMMANDS.LINEAR_INTERPOLATION, {
                  'x': None,
                  'y': None,
-                 'z': Decimal('20'),
+                 'z': float('20'),
                  'feed_rate': None,
              })),
 
@@ -167,12 +165,14 @@ def test_parse_line():
              (COMMANDS.LINEAR_INTERPOLATION, {
                  'x': None,
                  'y': None,
-                 'z': Decimal('20'),
-                 'feed_rate': Decimal('30'),
+                 'z': float('20'),
+                 'feed_rate': float('30'),
              })),
 
             ('G20', (COMMANDS.PROGRAMMING_IN_INCHES, {})),
             ('G21', (COMMANDS.PROGRAMMING_IN_MILLIMETERS, {})),
+            ('G90', (COMMANDS.ABSOLUTE_PROGRAMMING, {})),
+            ('G91', (COMMANDS.INCREMENTAL_PROGRAMMING, {})),
         ):
         _assert(parse_line(line), expected)
 
