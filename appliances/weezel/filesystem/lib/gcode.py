@@ -49,6 +49,9 @@ COMMAND_REGEX_MAP = {
             DecimalVariableRegexStr('F', 'feed_rate'),
         )
     ),
+
+    COMMANDS.PROGRAMMING_IN_INCHES: re.compile('^G20$'),
+    COMMANDS.PROGRAMMING_IN_MILLIMETERS: re.compile('^G21$'),
 }
 
 
@@ -118,19 +121,18 @@ def test_DecimalVariableRegexStr():
 
 
 def test_parse_line():
-    CMDS = COMMANDS
     for line, expected in (
-            ('', (CMDS.EMPTY, {})),
-            (' ', (CMDS.EMPTY, {})),
-            ('; A comment', (CMDS.COMMENT, { 'text': 'A comment' })),
+            ('', (COMMANDS.EMPTY, {})),
+            (' ', (COMMANDS.EMPTY, {})),
+            ('; A comment', (COMMANDS.COMMENT, { 'text': 'A comment' })),
 
-            ('G0 X20.2 Y30.3', (CMDS.RAPID_POSITIONING, {
+            ('G0 X20.2 Y30.3', (COMMANDS.RAPID_POSITIONING, {
                 'x': Decimal('20.2'),
                 'y': Decimal('30.3')
             })),
 
             ('G1 X10.1 Y40.4',
-             (CMDS.LINEAR_INTERPOLATION, {
+             (COMMANDS.LINEAR_INTERPOLATION, {
                  'x': Decimal('10.1'),
                  'y': Decimal('40.4'),
                  'z': None,
@@ -138,7 +140,7 @@ def test_parse_line():
              })),
 
             ('G1 X-10.1 Y-40.4 Z20',
-             (CMDS.LINEAR_INTERPOLATION, {
+             (COMMANDS.LINEAR_INTERPOLATION, {
                  'x': Decimal('-10.1'),
                  'y': Decimal('-40.4'),
                  'z': Decimal('20'),
@@ -146,7 +148,7 @@ def test_parse_line():
              })),
 
             ('G1 X-10.1 Y-40.4 Z20 F30',
-             (CMDS.LINEAR_INTERPOLATION, {
+             (COMMANDS.LINEAR_INTERPOLATION, {
                  'x': Decimal('-10.1'),
                  'y': Decimal('-40.4'),
                  'z': Decimal('20'),
@@ -154,7 +156,7 @@ def test_parse_line():
              })),
 
             ('G1 Z20',
-             (CMDS.LINEAR_INTERPOLATION, {
+             (COMMANDS.LINEAR_INTERPOLATION, {
                  'x': None,
                  'y': None,
                  'z': Decimal('20'),
@@ -162,29 +164,20 @@ def test_parse_line():
              })),
 
             ('G1 Z20 F30',
-             (CMDS.LINEAR_INTERPOLATION, {
+             (COMMANDS.LINEAR_INTERPOLATION, {
                  'x': None,
                  'y': None,
                  'z': Decimal('20'),
                  'feed_rate': Decimal('30'),
              })),
 
-    ):
+            ('G20', (COMMANDS.PROGRAMMING_IN_INCHES, {})),
+            ('G21', (COMMANDS.PROGRAMMING_IN_MILLIMETERS, {})),
+        ):
         _assert(parse_line(line), expected)
 
 
-if __name__ == '__main__':
-    from argparse import ArgumentParser
-    from inspect import isfunction
-    from sys import stdout
-
-    parser = ArgumentParser()
-    parser.add_argument('--test', action='store_true')
-    args = parser.parse_args()
-
-    if not args.test:
-        parser.error('specify --test if you want to run the tests')
-
+def run_tests():
     # Run all global functions with a name that starts with "test_".
     for k, v in sorted(globals().items()):
         if k.startswith('test_') and isfunction(v):
@@ -200,3 +193,26 @@ if __name__ == '__main__':
                 stdout.write(' - ok\n')
             finally:
                 stdout.flush()
+
+
+def parse_file(fh):
+    for line in fh:
+        result = parse_line(line)
+        print('"{}" => {}'.format(line.strip(), result))
+
+
+if __name__ == '__main__':
+    import argparse
+    from inspect import isfunction
+    from sys import stdout
+
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--parse-file', type=argparse.FileType('r'))
+    group.add_argument('--test', action='store_true', help="Run the tests")
+    args = parser.parse_args()
+
+    if args.test:
+        run_tests()
+    else:
+        parse_file(args.parse_file)
