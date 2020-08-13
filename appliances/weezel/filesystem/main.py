@@ -188,6 +188,7 @@ import time
 from collections import deque
 from machine import (
     Pin,
+    PWM,
     Timer,
 )
 from utime import (
@@ -216,6 +217,7 @@ from lib.femtoweb.server import (
     serve,
 )
 
+from lib._os import path
 from lib import gcode
 
 
@@ -247,6 +249,27 @@ TOP_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_VERTICAL_OFFSET_MM +
 SIDE_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM +
                    EASEL_FRAME_WIDTH_MM +
                    SLED_EDGE_IMPLEMENT_HORIZONTAL_OFFSET_MM)
+
+
+###############################################################################
+# Temporary File Helpers
+###############################################################################
+
+TMP_DIR = '/tmp'
+
+
+def ensure_erase_tmp_dir():
+    """Ensure that the /tmp directory exist and erase any existing files.
+    """
+    try:
+        os.stat(TMP_DIR)
+    except OSError:
+        # Create the directory.
+        os.mkdir(TMP_DIR)
+    else:
+        # Delete the existing files.
+        for filename in os.listdir(TMP_DIR):
+            os.remove(path.join(TMP_DIR, filename))
 
 
 ###############################################################################
@@ -288,6 +311,49 @@ def calc_legs(x, y):
 
 
 ###############################################################################
+# Z-Axis Servo Control
+###############################################################################
+
+SERVO_PULSE_PERIOD_MS = 20
+SERVO_MIN_ROTATION_DEGREES = 0
+SERVO_MAX_ROTATION_DEGREES = 180
+SERVO_MIN_ROTATION_PULSE_WIDTH_MS = 1
+SERVO_MAX_ROTATION_PULSE_WIDTH_MS = 2.5
+SERVO_PULSE_WIDTH_MS_PER_ROTATION_DEGREE = (
+    (SERVO_MAX_ROTATION_PULSE_WIDTH_MS - SERVO_MIN_ROTATION_PULSE_WIDTH_MS)
+    / SERVO_MAX_ROTATION_DEGREES
+)
+Z_AXIS_UP_SERVO_DEGREES = 30
+Z_AXIS_DOWN_SERVO_DEGREES = 0
+
+servo_degrees_to_duty = lambda degrees: int(
+    (SERVO_MIN_ROTATION_PULSE_WIDTH_MS +
+     SERVO_PULSE_WIDTH_MS_PER_ROTATION_DEGREE * degrees
+    ) / SERVO_PULSE_PERIOD_MS * 1024
+)
+
+SERVO_PWM = PWM(
+    Pin(21),
+    freq=int(1 / (SERVO_PULSE_PERIOD_MS / 1000)),
+    duty=servo_degrees_to_duty(Z_AXIS_DOWN_SERVO_DEGREES)
+)
+
+set_servo_degrees = \
+    lambda degrees: SERVO_PWM.duty(servo_degrees_to_duty(degrees))
+
+
+def move_z(value):
+    """Move the z-axis to the raised or lowered position based on whether the
+    specified value is >= 0.
+    """
+    degrees = (Z_AXIS_UP_SERVO_DEGREES if value >= 0 else
+               Z_AXIS_DOWN_SERVO_DEGREES)
+    set_servo_degrees(degrees)
+    global z_pos
+    z_pos = value
+
+
+###############################################################################
 # Stepper Motor Control
 ###############################################################################
 
@@ -326,6 +392,9 @@ RIGHT_STEPPER_DIR_PIN.value(1)
 # Init to home position.
 x_pos = 0
 y_pos = 0
+z_pos = -1
+move_z(z_pos)
+
 left_leg_length, right_leg_length = calc_legs(x_pos, y_pos)
 
 enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
@@ -650,9 +719,6 @@ def execute_gcode(fh):
         ABSOLUTE = 0
         INCREMENTAL = 1
 
-    # TODO - implement z-axis control
-    z_pos = 0
-
     units = None
     mode = None
 
@@ -709,11 +775,18 @@ def execute_gcode(fh):
         elif command == gcode.COMMANDS.RAPID_POSITIONING:
             _assert_ready_to_move()
             x, y, _ = calc_xyz_from_params(params)
+            pre_rapid_z_pos = z_pos
+            if z_pos < 0:
+                # Raise the z-axis before moving.
+                move_z(0)
             move_to_point(x, y)
+            # Restore the pre-move z-axis position.
+            set_z_axis_position(pre_rapid_z_pos)
 
         elif command == gcode.COMMANDS.LINEAR_INTERPOLATION:
             _assert_ready_to_move()
             x, y, z = calc_xyz_from_params(params)
+            move_z(z)
             move_to_point(x, y)
 
         # Ignore all other commands
@@ -871,5 +944,14 @@ def _execute_gcode(request):
     return _200()
 
 
+@route('/set_servo_degrees', methods=(GET,), query_param_parser_map={
+    'degrees': as_type(int)
+})
+def _set_servo_degrees(request, degrees):
+    set_servo_degrees(degrees)
+    return _200()
+
+
 if __name__ == '__main__':
+    ensure_erase_tmp_dir()
     serve()
