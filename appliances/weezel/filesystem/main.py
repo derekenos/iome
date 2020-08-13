@@ -362,8 +362,8 @@ RIGHT_STEPPER = 'r'
 # Area reachable by the v2 sled is:
 #  width: 17.25" (~438 mm)
 #  height: 19.125" (~485 mm)
-X_MAX = 438
-Y_MAX = 400
+X_MAX = 380
+Y_MAX = 460
 DIR_RETRACT = 'retract'
 DIR_EXTEND = 'extend'
 MIN_LEFT_LEG_LENGTH_MM, _ = calc_legs(0, 0)
@@ -392,7 +392,7 @@ RIGHT_STEPPER_DIR_PIN.value(1)
 # Init to home position.
 x_pos = 0
 y_pos = 0
-z_pos = -1
+z_pos = 0
 move_z(z_pos)
 
 left_leg_length, right_leg_length = calc_legs(x_pos, y_pos)
