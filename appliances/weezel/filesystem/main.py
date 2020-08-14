@@ -179,7 +179,6 @@
 # So each 1.8 degree stepper motor step extends or retracts the belt by
 # 37.7mm / 200 = 0.1885mm
 
-
 import json
 import machine
 import math
@@ -252,14 +251,22 @@ SIDE_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM +
 
 
 ###############################################################################
-# Temporary File Helpers
+# File Operation Helpers
 ###############################################################################
 
 TMP_DIR = '/tmp'
+DATA_DIR = '/data'
+
+class DATAFILES:
+    LAST_KNOWN_POSITION = 0
+
+DATAFILE_FILENAME_MAP = {
+    DATAFILES.LAST_KNOWN_POSITION: 'last_known_position',
+}
 
 
 def ensure_erase_tmp_dir():
-    """Ensure that the /tmp directory exist and erase any existing files.
+    """Ensure that the tmp directory exists and erase any existing files.
     """
     try:
         os.stat(TMP_DIR)
@@ -270,6 +277,41 @@ def ensure_erase_tmp_dir():
         # Delete the existing files.
         for filename in os.listdir(TMP_DIR):
             os.remove(path.join(TMP_DIR, filename))
+
+
+def ensure_data_dir():
+    """Ensure that the data directory exists and erase any existing files.
+    """
+    try:
+        os.stat(DATA_DIR)
+    except OSError:
+        # Create the directory.
+        os.mkdir(DATA_DIR)
+
+
+def read_data_file(name):
+    filename = DATAFILE_FILENAME_MAP[name]
+    file_path = path.join(DATA_DIR, filename)
+    if not path.exists(file_path):
+        return None
+    return json.load(open(file_path, 'r', encoding='utf-8'))
+
+
+def write_data_file(name, data):
+    filename = DATAFILE_FILENAME_MAP[name]
+    file_path = path.join(DATA_DIR, filename)
+    # Attempt to encode here to prevent truncating an existing file in the case
+    # of an error.
+    data = json.dumps(data)
+    with open(file_path, 'w') as fh:
+        fh.write(data)
+
+
+get_last_known_position = lambda: read_data_file(DATAFILES.LAST_KNOWN_POSITION)
+save_last_known_position = lambda x, y, z: write_data_file(
+    DATAFILES.LAST_KNOWN_POSITION,
+    (x, y, z)
+)
 
 
 ###############################################################################
@@ -370,9 +412,12 @@ MIN_LEFT_LEG_LENGTH_MM, _ = calc_legs(0, 0)
 _, MIN_RIGHT_LEG_LENGTH_MM = calc_legs(X_MAX, 0)
 MAX_LEFT_LEG_LENGTH_MM, _ = calc_legs(X_MAX, Y_MAX)
 _, MAX_RIGHT_LEG_LENGTH_MM = calc_legs(0, Y_MAX)
-LINEAR_DISTANCE_PER_STEP = 0.1885
+LINEAR_MM_PER_STEPPER_STEP = 0.1885
 
 INTERSTEP_DELAY_MS = 4
+
+# TODO
+#DEFAULT_FEED_RATE_MM_PER_MIN = 400
 
 STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
 STEPPER_NOT_ENABLE_PIN.value(1)
@@ -389,13 +434,6 @@ RIGHT_STEPPER_STEP_PIN.value(0)
 RIGHT_STEPPER_DIR_PIN = Pin(13, Pin.OUT)
 RIGHT_STEPPER_DIR_PIN.value(1)
 
-# Init to home position.
-x_pos = 0
-y_pos = 0
-z_pos = 0
-move_z(z_pos)
-
-left_leg_length, right_leg_length = calc_legs(x_pos, y_pos)
 
 enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
 disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
@@ -419,22 +457,22 @@ def step(stepper, direction):
         if direction == DIR_RETRACT:
             if left_leg_length <= MIN_LEFT_LEG_LENGTH_MM:
                 return False
-            left_leg_length -= LINEAR_DISTANCE_PER_STEP
+            left_leg_length -= LINEAR_MM_PER_STEPPER_STEP
         elif direction == DIR_EXTEND:
             if left_leg_length >= MAX_LEFT_LEG_LENGTH_MM:
                 return False
-            left_leg_length += LINEAR_DISTANCE_PER_STEP
+            left_leg_length += LINEAR_MM_PER_STEPPER_STEP
         step_pin = LEFT_STEPPER_STEP_PIN
         LEFT_STEPPER_DIR_PIN(0 if direction == DIR_RETRACT else 1)
     else:
         if direction == DIR_RETRACT:
             if right_leg_length <= MIN_RIGHT_LEG_LENGTH_MM:
                 return False
-            right_leg_length -= LINEAR_DISTANCE_PER_STEP
+            right_leg_length -= LINEAR_MM_PER_STEPPER_STEP
         elif direction == DIR_EXTEND:
             if right_leg_length >= MAX_RIGHT_LEG_LENGTH_MM:
                 return False
-            right_leg_length += LINEAR_DISTANCE_PER_STEP
+            right_leg_length += LINEAR_MM_PER_STEPPER_STEP
         step_pin = RIGHT_STEPPER_STEP_PIN
         RIGHT_STEPPER_DIR_PIN(0 if direction == DIR_EXTEND else 1)
 
@@ -442,9 +480,7 @@ def step(stepper, direction):
     return True
 
 
-is_moving_to_point = False
-
-def move_to_point(x, y):
+def move_xy(x, y):
     global x_pos
     global y_pos
     global left_leg_length
@@ -466,10 +502,10 @@ def move_to_point(x, y):
 
     # Calculate the number of steps for each motor.
     num_left_steps = math.floor(
-        abs(left_leg_length_delta / LINEAR_DISTANCE_PER_STEP)
+        abs(left_leg_length_delta / LINEAR_MM_PER_STEPPER_STEP)
     )
     num_right_steps = math.floor(
-        abs(right_leg_length_delta / LINEAR_DISTANCE_PER_STEP)
+        abs(right_leg_length_delta / LINEAR_MM_PER_STEPPER_STEP)
     )
 
     if num_left_steps == 0 and num_right_steps == 0:
@@ -513,11 +549,34 @@ def move_to_point(x, y):
     disable_steppers()
 
 
-def move_to_points(points):
+def move_xys(points):
     """Move along a sequence of points.
     """
     for x, y in points:
-        move_to_point(x, y)
+        move_xy(x, y)
+
+
+###############################################################################
+# Global State
+###############################################################################
+
+DEFAULT_HOME_X = 0
+DEFAULT_HOME_Y = 0
+DEFAULT_HOME_Z = -1
+
+# Init to last known position, if known, and move the z axis accordingly.
+last_known_position = get_last_known_position()
+if last_known_position is not None:
+    x_pos, y_pos, z_pos = last_known_position
+else:
+    x_pos, y_pos, z_pos = DEFAULT_HOME_X, DEFAULT_HOME_Y, DEFAULT_HOME_Z
+move_z(z_pos)
+
+# Determine the initial length of the trapazoid geometry legs.
+left_leg_length, right_leg_length = calc_legs(x_pos, y_pos)
+
+# Define a flag to indicate whether the sled is currently moving.
+is_moving_to_point = False
 
 
 ###############################################################################
@@ -550,7 +609,7 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
         # Handle SPACE and unsupported chars by advancing the x position by
         # word_spacing number of steps.
         if char == ' ' or char not in CHARS:
-            move_to_point(x_pos + word_spacing, y_pos)
+            move_xy(x_pos + word_spacing, y_pos)
             x_offset += word_spacing
             continue
 
@@ -575,7 +634,7 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
         # Apply offset.
         points = [(x + x_offset, y + y_offset) for x, y in points]
 
-        move_to_points(points)
+        move_xys(points)
 
         x_offset += next_x_offset
 
@@ -703,7 +762,7 @@ def render_svg(fh):
                 x *= scale
                 y *= scale
 
-                move_to_point(x, y)
+                move_xy(x, y)
 
 
 ###############################################################################
@@ -779,7 +838,7 @@ def execute_gcode(fh):
             if z_pos < 0:
                 # Raise the z-axis before moving.
                 move_z(0)
-            move_to_point(x, y)
+            move_xy(x, y)
             # Restore the pre-move z-axis position.
             set_z_axis_position(pre_rapid_z_pos)
 
@@ -787,7 +846,7 @@ def execute_gcode(fh):
             _assert_ready_to_move()
             x, y, z = calc_xyz_from_params(params)
             move_z(z)
-            move_to_point(x, y)
+            move_xy(x, y)
 
         # Ignore all other commands
 
@@ -795,6 +854,15 @@ def execute_gcode(fh):
 ###############################################################################
 # Route Handlers
 ###############################################################################
+
+# Define a decorator to save the current position as the last known.
+def save_final_position(func):
+    def f(*args, **kwargs):
+        result = func(*args, **kwargs)
+        save_last_known_position(x_pos, y_pos, z_pos)
+        return result
+    return f
+
 
 @route('/_reset', methods=(GET, POST))
 def _reset(request):
@@ -827,7 +895,7 @@ def _status(request):
             'MIN_RIGHT_LEG_LENGTH_MM': MIN_RIGHT_LEG_LENGTH_MM,
             'MAX_LEFT_LEG_LENGTH_MM': MAX_LEFT_LEG_LENGTH_MM,
             'MAX_RIGHT_LEG_LENGTH_MM': MAX_RIGHT_LEG_LENGTH_MM,
-            'LINEAR_DISTANCE_PER_STEP': LINEAR_DISTANCE_PER_STEP,
+            'LINEAR_MM_PER_STEPPER_STEP': LINEAR_MM_PER_STEPPER_STEP,
             'left_leg': left_leg_length,
             'right_leg': right_leg_length
         }
@@ -841,6 +909,7 @@ def index(request):
 
 
 @route('/demo', methods=(GET,))
+@save_final_position
 def _demo(request):
     draw_text('WEEZEL', char_height=64, char_spacing=16, x_offset=0,
               y_offset=Y_MAX / 2 - 64)
@@ -848,6 +917,7 @@ def _demo(request):
 
 
 @route('/trace_perimeter', methods=(GET,))
+@save_final_position
 def _trace_perimeter(request):
     for x, y in (
             (0, 0),
@@ -856,7 +926,7 @@ def _trace_perimeter(request):
             (X_MAX, 0),
             (0, 0),
     ):
-        move_to_point(x, y)
+        move_xy(x, y)
     return _200()
 
 
@@ -868,6 +938,7 @@ def _trace_perimeter(request):
     'x_offset': as_maybe(as_type(int)),
     'y_offset': as_maybe(as_type(int)),
 })
+@save_final_position
 def _write(request, text, char_height, char_spacing, word_spacing, x_offset,
            y_offset):
     draw_text(text, char_height, char_spacing, word_spacing, x_offset,
@@ -875,17 +946,27 @@ def _write(request, text, char_height, char_spacing, word_spacing, x_offset,
     return _200()
 
 
-@route('/move_to_point', methods=(GET,), query_param_parser_map={
-    'x': as_type(int),
-    'y': as_type(int),
+@route('/move', methods=(GET,), query_param_parser_map={
+    'x': as_maybe(as_type(int)),
+    'y': as_maybe(as_type(int)),
+    'z': as_maybe(as_type(int)),
 })
-def _move_to_point(request, x, y):
-    move_to_point(x, y)
+@save_final_position
+def _move(request, x, y, z):
+    if x is None:
+        x = x_pos
+    if y is None:
+        y = y_pos
+    if z is None:
+        z = z_pos
+    move_xy(x, y)
+    move_z(z)
     return _200()
 
 
 _draw_dq = deque((), 512)
 @route('/draw', methods=(GET,))
+@save_final_position
 @as_websocket
 def _draw(request, ws):
     def callback(timer):
@@ -897,33 +978,49 @@ def _draw(request, ws):
 
         if not is_moving_to_point and _draw_dq:
             x, y = _draw_dq.popleft()
-            move_to_point(x, y)
+            move_xy(x, y)
 
         timer.init(period=20, mode=Timer.ONE_SHOT, callback=callback)
     callback(Timer(-1))
 
 
 @route('/home', methods=(GET,))
+@save_final_position
 def _home(request):
     """Force it to the home position by setting x_pos and y_pos to their max
     values, moving to point 0,0, and then back up 20 steps to reach the usable
     region.
     """
-    move_to_point(0, 0)
+    move_xy(0, 0)
+    return _200()
+
+
+@route('/reset_home', methods=(GET,))
+@save_final_position
+def _reset_home(request):
+    global x_pos
+    global y_pos
+    global z_pos
+    global left_leg_length
+    global right_leg_length
+    x_pos, y_pos, z_pos = DEFAULT_HOME_X, DEFAULT_HOME_Y, DEFAULT_HOME_Z
+    left_leg_length, right_leg_length = calc_legs(x_pos, y_pos)
     return _200()
 
 
 @route('/move_to_center', methods=(GET,))
+@save_final_position
 def _move_to_center(request):
     """Move to the center.
     """
-    move_to_point(X_MAX / 2, Y_MAX / 2)
+    move_xy(X_MAX / 2, Y_MAX / 2)
     return _200()
 
 
 @route('/demo_svg', methods=(GET,), query_param_parser_map={
     'filename': as_type(str)
 })
+@save_final_position
 def _demo_svg(request, filename):
     fh = open(filename, 'r')
     render_svg(fh)
@@ -931,6 +1028,7 @@ def _demo_svg(request, filename):
 
 
 @route('/execute_gcode', methods=(PUT,))
+@save_final_position
 def _execute_gcode(request):
     # Upload the file to a temporary location.
     file_path = '/tmp/gcode.{}'.format(time.time())
@@ -944,14 +1042,7 @@ def _execute_gcode(request):
     return _200()
 
 
-@route('/set_servo_degrees', methods=(GET,), query_param_parser_map={
-    'degrees': as_type(int)
-})
-def _set_servo_degrees(request, degrees):
-    set_servo_degrees(degrees)
-    return _200()
-
-
 if __name__ == '__main__':
     ensure_erase_tmp_dir()
+    ensure_data_dir()
     serve()
