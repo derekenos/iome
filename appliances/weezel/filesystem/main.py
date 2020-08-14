@@ -388,10 +388,11 @@ def move_z(value):
     """Move the z-axis to the raised or lowered position based on whether the
     specified value is >= 0.
     """
+    global z_pos
+
     degrees = (Z_AXIS_UP_SERVO_DEGREES if value >= 0 else
                Z_AXIS_DOWN_SERVO_DEGREES)
     set_servo_degrees(degrees)
-    global z_pos
     z_pos = value
 
 
@@ -414,7 +415,7 @@ MAX_LEFT_LEG_LENGTH_MM, _ = calc_legs(X_MAX, Y_MAX)
 _, MAX_RIGHT_LEG_LENGTH_MM = calc_legs(0, Y_MAX)
 LINEAR_MM_PER_STEPPER_STEP = 0.1885
 
-INTERSTEP_DELAY_MS = 4
+INTERSTEP_DELAY_MS = 8
 
 # TODO
 #DEFAULT_FEED_RATE_MM_PER_MIN = 400
@@ -434,9 +435,9 @@ RIGHT_STEPPER_STEP_PIN.value(0)
 RIGHT_STEPPER_DIR_PIN = Pin(13, Pin.OUT)
 RIGHT_STEPPER_DIR_PIN.value(1)
 
-
 enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
 disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
+
 
 
 def pulse_step_pin(step_pin):
@@ -512,7 +513,7 @@ def move_xy(x, y):
         # All deltas are smaller than a single step.
         return
 
-    # Plan a linear path.
+    # Scale the length delta of each belt over the duration of the move.
     max_num_steps_delta = max(num_left_steps, num_right_steps)
     left_leg_acc_step_size = num_left_steps / max_num_steps_delta
     right_leg_acc_step_size = num_right_steps / max_num_steps_delta
@@ -542,11 +543,11 @@ def move_xy(x, y):
 
         sleep_ms(INTERSTEP_DELAY_MS)
 
-    # TODO - update the global positions in real time.
+    disable_steppers()
+    # Update the global state.
     x_pos = x
     y_pos = y
     is_moving_to_point = False
-    disable_steppers()
 
 
 def move_xys(points):
@@ -562,7 +563,7 @@ def move_xys(points):
 
 DEFAULT_HOME_X = 0
 DEFAULT_HOME_Y = 0
-DEFAULT_HOME_Z = -1
+DEFAULT_HOME_Z = 0
 
 # Init to last known position, if known, and move the z axis accordingly.
 last_known_position = get_last_known_position()
@@ -1004,6 +1005,7 @@ def _reset_home(request):
     global left_leg_length
     global right_leg_length
     x_pos, y_pos, z_pos = DEFAULT_HOME_X, DEFAULT_HOME_Y, DEFAULT_HOME_Z
+    move_z(z_pos)
     left_leg_length, right_leg_length = calc_legs(x_pos, y_pos)
     return _200()
 
@@ -1039,6 +1041,7 @@ def _execute_gcode(request):
     finally:
         # Delete the temporary file.
         os.remove(file_path)
+    move_xy(0, 0)
     return _200()
 
 
