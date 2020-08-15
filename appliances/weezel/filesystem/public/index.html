@@ -127,8 +127,24 @@
          )
        )
 
-       document.getElementById('go-home').addEventListener('click', () => {
-         fetch('/move_to_point?x=0&y=0')
+       document.getElementById('home').addEventListener('click', () => {
+         fetch('/home')
+       })
+
+       document.getElementById('center').addEventListener('click', () => {
+         fetch('/move_to_center')
+       })
+
+       document.getElementById('reset_home').addEventListener('click', () => {
+         fetch('/reset_home')
+       })
+
+       document.getElementById('lift_pen').addEventListener('click', () => {
+         fetch('/move?z=0')
+       })
+
+       document.getElementById('drop_pen').addEventListener('click', () => {
+         fetch('/move?z=-1')
        })
 
      }
@@ -142,7 +158,11 @@
   <body>
     <canvas id="canvas" width="0", height="0"></canvas>
     <br>
-    <button id="go-home">Go Home</button>
+    <button id="home">Home</button>
+    <button id="reset_home">Set as Home</button>
+    <button id="center">Center</button>
+    <button id="lift_pen">Lift Pen</button>
+    <button id="drop_pen">Drop Pen</button>
   </body>
 
 </html>
