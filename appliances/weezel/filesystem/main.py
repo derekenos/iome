@@ -229,68 +229,10 @@ class OutOfBounds(Exception): pass
 
 
 ###############################################################################
-# Geometric Constants
+# Utility Functions
 ###############################################################################
 
-HOME_X = 0
-HOME_Y = 0
-HOME_Z = 0
-
-UPPER_BASE_LENGTH_MM = 649
-LOWER_BASE_LENGTH_MM = 23
-SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM = 11.5
-SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM = 20
-
-# Values to compensate for the unusable area within the trapazoid.
-UPPER_BASE_ENDPOINT_FRAME_VERTICAL_OFFSET_MM = 18.5
-UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM = 14.3
-EASEL_FRAME_WIDTH_MM = 40
-SLED_EDGE_IMPLEMENT_TOP_OFFSET_MM = 28
-SLED_EDGE_IMPLEMENT_HORIZONTAL_OFFSET_MM = 54
-TOP_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_VERTICAL_OFFSET_MM +
-                  EASEL_FRAME_WIDTH_MM +
-                  SLED_EDGE_IMPLEMENT_TOP_OFFSET_MM)
-SIDE_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM +
-                   EASEL_FRAME_WIDTH_MM +
-                   SLED_EDGE_IMPLEMENT_HORIZONTAL_OFFSET_MM)
-
-
-###############################################################################
-# Geometric Functions
-###############################################################################
-
-def calc_legs(x, y):
-    """Return the length of each trapezoidal leg as the tuple:
-    ( <left-leg-length-mm>, <right-leg-length-mm> )
-
-    Assuming the following geometry:
-
-       b ||      || b
-        _\/______\/_
-        \   |  |   /
-    c -> \  |  |  / <- c
-     a ---->|  |<---- a
-           \|__|/
-
-    Add the top and side keepouts as fixed offsets.
-
-    """
-    # The "a" right triangle leg is always the same for both sides.
-    # Just square it once now.
-    a2 = math.pow(
-        TOP_KEEPOUT_MM + y - SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM, 2
-    )
-
-    # Calculate the left leg.
-    left_b = SIDE_KEEPOUT_MM + x - SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM
-    left_c = math.sqrt(a2 + math.pow(left_b, 2))
-
-    # Calculate the right leg.
-    right_b = (UPPER_BASE_LENGTH_MM - left_b -
-               SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM * 2)
-    right_c = math.sqrt(a2 + math.pow(right_b, 2))
-
-    return (left_c, right_c)
+inch_to_mm = lambda x: (x * 25.4) if x is not None else None
 
 
 ###############################################################################
@@ -351,6 +293,289 @@ def write_datafile(name, data):
 
 
 ###############################################################################
+# Stepper Class
+###############################################################################
+
+class Stepper:
+    """Stepper motor interface.
+    Current model: https://www.amazon.com/gp/product/B00PNEQI7W
+    """
+    STEPS_PER_REVOLUTION = 200
+
+    # These CW (clockwise) and CCW (counter-clockwise) direction pin values
+    # correspond to the way in which the shaft will turn when you view the
+    # stepper head-on from the front.
+    CCW, CW = 0, 1
+
+    def __init__(self, not_enable_pin_num, dir_pin_num, step_pin_num):
+        self.not_enable_pin = Pin(not_enable_pin_num, Pin.OUT)
+        self.not_enable_pin.value(1)
+
+        self.step_pin = Pin(step_pin_num, Pin.OUT)
+        self.step_pin.value(0)
+
+        self.dir_pin = Pin(dir_pin_num, Pin.OUT)
+        self.dir_pin.value(1)
+
+    def enable(self):
+        self.not_enable_pin.value(0)
+
+    def disable(self):
+        self.not_enable_pin.value(1)
+
+    def pulse_step_pin(self):
+        self.step_pin.value(1)
+        sleep_us(1)
+        self.step_pin.value(0)
+        sleep_us(1)
+
+    def step(self, direction):
+        self.dir_pin(direction)
+        self.pulse_step_pin()
+
+
+###############################################################################
+# Stepper Motor Assembly Class
+###############################################################################
+
+class StepperMotorAssembly(Stepper):
+    # Define the diameter of the timing pulley inner surface that comes in
+    # contact with the belt.
+    TIMING_PULLEY_BELT_MATING_SURFACE_DIAMETER_MM = 12
+
+    # Derived constants.
+    TIMING_PULLEY_BELT_MATING_SURFACE_CURCUMFERENCE_MM = \
+        2 * math.pi * (TIMING_PULLEY_BELT_MATING_SURFACE_DIAMETER_MM / 2)
+    MM_PER_STEP = (TIMING_PULLEY_BELT_MATING_SURFACE_CURCUMFERENCE_MM /
+                   Stepper.STEPS_PER_REVOLUTION)
+
+
+###############################################################################
+# Servo Class
+###############################################################################
+
+class Servo:
+    """Servo motor interface.
+    Current model: https://www.amazon.com/gp/product/B072V529YD
+    """
+    PULSE_PERIOD_MS = 20
+    MIN_ROTATION_DEGREES = 0
+    MAX_ROTATION_DEGREES = 180
+    MIN_ROTATION_PULSE_WIDTH_MS = 1
+    MAX_ROTATION_PULSE_WIDTH_MS = 2.5
+    PULSE_WIDTH_MS_PER_ROTATION_DEGREE = (
+        (MAX_ROTATION_PULSE_WIDTH_MS - MIN_ROTATION_PULSE_WIDTH_MS)
+        / MAX_ROTATION_DEGREES
+    )
+
+    @classmethod
+    def servo_degrees_to_duty(cls, degrees):
+        return int(
+            (cls.MIN_ROTATION_PULSE_WIDTH_MS +
+             cls.PULSE_WIDTH_MS_PER_ROTATION_DEGREE * degrees
+            ) / cls.PULSE_PERIOD_MS * 1024
+        )
+
+    def __init__(self, pin_num):
+        self.pwm = PWM(
+            Pin(pin_num),
+            freq=int(1 / (self.PULSE_PERIOD_MS / 1000)),
+            duty=self.servo_degrees_to_duty(0)
+        )
+
+    def set(self, degrees):
+        self.pwm.duty(self.servo_degrees_to_duty(degrees))
+
+
+###############################################################################
+# Z-Axis Class
+###############################################################################
+
+class ZAxis(Servo):
+    LIFTED_POSITION_DEGREES = 30
+    DROPPED_POSITION_DEGREES = 0
+
+    def lift(self):
+        self.set(self.LIFTED_POSITION_DEGREES)
+
+    def drop(self):
+        self.set(self.DROPPED_POSITION_DEGREES)
+
+
+###############################################################################
+# Weezel Class
+###############################################################################
+
+class Weezel:
+    HOME_X = 0
+    HOME_Y = 0
+    HOME_Z = 0
+
+    UPPER_BASE_LENGTH_MM = 649
+    LOWER_BASE_LENGTH_MM = 23
+    SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM = 11.5
+    SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM = 20
+
+    MAX_X = 380
+    MAX_Y = 460
+    INTERSTEP_DELAY_MS = 8
+
+    # Values to compensate for the unusable area within the trapazoid.
+    UPPER_BASE_ENDPOINT_FRAME_VERTICAL_OFFSET_MM = 18.5
+    UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM = 14.3
+    EASEL_FRAME_BEAM_WIDTH_MM = 40
+    SLED_EDGE_IMPLEMENT_TOP_OFFSET_MM = 28
+    SLED_EDGE_IMPLEMENT_HORIZONTAL_OFFSET_MM = 54
+    TOP_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_VERTICAL_OFFSET_MM +
+                      EASEL_FRAME_BEAM_WIDTH_MM +
+                      SLED_EDGE_IMPLEMENT_TOP_OFFSET_MM)
+
+    SIDE_KEEPOUT_MM = (UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM +
+                       EASEL_FRAME_BEAM_WIDTH_MM +
+                       SLED_EDGE_IMPLEMENT_HORIZONTAL_OFFSET_MM)
+
+    @classmethod
+    def calc_legs(cls, x, y):
+        """Return the length of each trapezoidal leg as the tuple:
+        ( <left-leg-length-mm>, <right-leg-length-mm> )
+
+        Assuming the following geometry:
+
+           b ||      || b
+            _\/______\/_
+            \   |  |   /
+        c -> \  |  |  / <- c
+         a ---->|  |<---- a
+               \|__|/
+
+        Add the top and side keepouts as fixed offsets.
+
+        """
+        # The "a" right triangle leg is always the same for both sides.
+        # Just square it once now.
+        a2 = math.pow(
+            cls.TOP_KEEPOUT_MM + y -
+            cls.SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM, 2
+        )
+
+        # Calculate the left leg.
+        left_b = cls.SIDE_KEEPOUT_MM + x - \
+            cls.SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM
+        left_c = math.sqrt(a2 + math.pow(left_b, 2))
+
+        # Calculate the right leg.
+        right_b = (cls.UPPER_BASE_LENGTH_MM - left_b -
+                   cls.SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM * 2)
+        right_c = math.sqrt(a2 + math.pow(right_b, 2))
+        return (left_c, right_c)
+
+    def __init__(self, left_stepper_motor_assembly,
+                 right_stepper_motor_assembly, z_axis):
+
+        self.MIN_LEFT_LEG_LENGTH_MM, _ = self.calc_legs(0, 0)
+        self._, MIN_RIGHT_LEG_LENGTH_MM = self.calc_legs(self.MAX_X, 0)
+        self.MAX_LEFT_LEG_LENGTH_MM, _ = self.calc_legs(self.MAX_X, self.MAX_Y)
+        self._, MAX_RIGHT_LEG_LENGTH_MM = self.calc_legs(0, self.MAX_Y)
+
+        self.left_stepper_motor_assembly = left_stepper_motor_assembly
+        self.right_stepper_motor_assembly = right_stepper_motor_assembly
+        self.z_axis = z_axis
+
+        self.x = self.HOME_X
+        self.y = self.HOME_Y
+        self.z = self.HOME_Z
+        self.move_z(self.z)
+
+        # The length of the trapazoid geometry legs.
+        self.left_leg_length, self.right_leg_length = \
+            self.calc_legs(self.x, self.y)
+
+        # Flag to indicate whether a motion operation is active.
+        self.in_motion = False
+
+    def disable_steppers(self):
+        self.left_stepper_motor_assembly.disable()
+        self.right_stepper_motor_assembly.disable()
+
+    def move_z(self, z):
+        if z < 0:
+            self.z_axis.drop()
+        else:
+            self.z_axis.lift()
+        self.z = z
+
+    def move_xy(self, x, y):
+        if x > self.MAX_X or y > self.MAX_Y:
+            raise OutOfBounds('x,y max is {},{}, got {},{}'.format(
+                self.MAX_X, self.MAX_Y, x, y))
+
+        if x == self.x and y == self.y:
+            # Nothing to do.
+            return
+
+        # Calculate the new leg lengths and delta from the current.
+        new_left_leg_length, new_right_leg_length = self.calc_legs(x, y)
+        left_leg_length_delta = new_left_leg_length - self.left_leg_length
+        right_leg_length_delta = new_right_leg_length - self.right_leg_length
+
+        # Calculate the number of steps for each motor.
+        num_left_steps = math.floor(
+            abs(left_leg_length_delta /
+                self.left_stepper_motor_assembly.MM_PER_STEP)
+        )
+        num_right_steps = math.floor(
+            abs(right_leg_length_delta /
+                self.right_stepper_motor_assembly.MM_PER_STEP)
+        )
+
+        if num_left_steps == 0 and num_right_steps == 0:
+            # All deltas are smaller than a single step.
+            return
+
+        # Scale the length delta of each belt over the duration of the move.
+        max_num_steps_delta = max(num_left_steps, num_right_steps)
+        left_leg_acc_step_size = num_left_steps / max_num_steps_delta
+        right_leg_acc_step_size = num_right_steps / max_num_steps_delta
+        left_leg_acc = 0
+        right_leg_acc = 0
+
+        left_steps_remaining = num_left_steps
+        right_steps_remaining = num_right_steps
+        self.left_stepper_motor_assembly.enable()
+        self.right_stepper_motor_assembly.enable()
+        while left_steps_remaining or right_steps_remaining:
+            if left_steps_remaining:
+                last_left_leg_acc = left_leg_acc
+                left_leg_acc += left_leg_acc_step_size
+                if math.floor(left_leg_acc) != math.floor(last_left_leg_acc):
+                    self.left_stepper_motor_assembly.step(
+                        Stepper.CCW if left_leg_length_delta < 0 else
+                        Stepper.CW
+                    )
+                    left_steps_remaining -= 1
+
+            if right_steps_remaining:
+                last_right_leg_acc = right_leg_acc
+                right_leg_acc += right_leg_acc_step_size
+                if math.floor(right_leg_acc) != math.floor(last_right_leg_acc):
+                    self.right_stepper_motor_assembly.step(
+                        Stepper.CW if right_leg_length_delta < 0 else
+                        Stepper.CCW
+                    )
+                    right_steps_remaining -= 1
+
+            sleep_ms(self.INTERSTEP_DELAY_MS)
+
+        self.left_stepper_motor_assembly.disable()
+        self.right_stepper_motor_assembly.disable()
+
+        self.x = x
+        self.y = y
+        self.left_leg_length = new_left_leg_length
+        self.right_leg_length = new_right_leg_length
+
+
+###############################################################################
 # Decorators
 ###############################################################################
 
@@ -359,253 +584,23 @@ def motion_operation(func):
     motion operations that handles global state modifications and
     last-known-position persistence.
     """
-    def f(*args, **kwargs):
-        if state.in_motion:
+    def f(weezel, *args, **kwargs):
+        if weezel.in_motion:
             # A motion operation is already in progress so return a
             # HTTP 503 - server currently unavailable response.
             return _503()
-        state.in_motion = True
+        weezel.in_motion = True
         try:
-            result = func(*args, **kwargs)
+            result = func(weezel, *args, **kwargs)
         except:
             raise
         else:
             return result
         finally:
-            state.in_motion = False
-            # Always save the state after a motion operation.
-            state.save()
+            weezel.in_motion = False
+            # TODO
+            #weezel.save_state()
     return f
-
-
-###############################################################################
-# Z-Axis Servo Control
-###############################################################################
-
-SERVO_PULSE_PERIOD_MS = 20
-SERVO_MIN_ROTATION_DEGREES = 0
-SERVO_MAX_ROTATION_DEGREES = 180
-SERVO_MIN_ROTATION_PULSE_WIDTH_MS = 1
-SERVO_MAX_ROTATION_PULSE_WIDTH_MS = 2.5
-SERVO_PULSE_WIDTH_MS_PER_ROTATION_DEGREE = (
-    (SERVO_MAX_ROTATION_PULSE_WIDTH_MS - SERVO_MIN_ROTATION_PULSE_WIDTH_MS)
-    / SERVO_MAX_ROTATION_DEGREES
-)
-Z_AXIS_UP_SERVO_DEGREES = 30
-Z_AXIS_DOWN_SERVO_DEGREES = 0
-
-servo_degrees_to_duty = lambda degrees: int(
-    (SERVO_MIN_ROTATION_PULSE_WIDTH_MS +
-     SERVO_PULSE_WIDTH_MS_PER_ROTATION_DEGREE * degrees
-    ) / SERVO_PULSE_PERIOD_MS * 1024
-)
-
-SERVO_PWM = PWM(
-    Pin(21),
-    freq=int(1 / (SERVO_PULSE_PERIOD_MS / 1000)),
-    duty=servo_degrees_to_duty(Z_AXIS_DOWN_SERVO_DEGREES)
-)
-
-set_servo_degrees = \
-    lambda degrees: SERVO_PWM.duty(servo_degrees_to_duty(degrees))
-
-
-def move_z(value):
-    """Move the z-axis to the raised or lowered position based on whether the
-    specified value is >= 0.
-    """
-    degrees = (Z_AXIS_UP_SERVO_DEGREES if value >= 0 else
-               Z_AXIS_DOWN_SERVO_DEGREES)
-    set_servo_degrees(degrees)
-    state.z = value
-
-
-###############################################################################
-# State Data Model
-###############################################################################
-
-class State:
-    def __init__(self):
-        # The current x/y/z positions in millimeters.
-        self.x = HOME_X
-        self.y = HOME_Y
-        self.z = HOME_Z
-
-        # The length of the trapazoid geometry legs.
-        self.left_leg_length = None
-        self.right_leg_length = None
-
-        # Flag to indicate whether a motion operation is active.
-        self.in_motion = False
-
-        # Recalculate dependent values.
-        self.recalculate()
-
-    def restore(self):
-        """Update the instance __dict__ with any previous saved value and
-        return self to make it easy to do: state = State().restore()
-        """
-        # Update __dict__ from any saved value.
-        self.__dict__.update(read_datafile(DATAFILES.STATE) or {})
-        # Recalculate dependent values.
-        self.recalculate()
-        return self
-
-    def save(self):
-        """Save the current state.
-        """
-        write_datafile(DATAFILES.STATE, self.__dict__)
-
-    def recalculate(self):
-        # Recalculate the leg values for the current x/y position.
-        self.left_leg_length, self.right_leg_length = calc_legs(self.x, self.y)
-
-
-###############################################################################
-# X/Y Axes Stepper Motor Control
-###############################################################################
-
-LEFT_STEPPER = 'l'
-RIGHT_STEPPER = 'r'
-MAX_X = 380
-MAX_Y = 460
-DIR_RETRACT = 'retract'
-DIR_EXTEND = 'extend'
-MIN_LEFT_LEG_LENGTH_MM, _ = calc_legs(0, 0)
-_, MIN_RIGHT_LEG_LENGTH_MM = calc_legs(MAX_X, 0)
-MAX_LEFT_LEG_LENGTH_MM, _ = calc_legs(MAX_X, MAX_Y)
-_, MAX_RIGHT_LEG_LENGTH_MM = calc_legs(0, MAX_Y)
-LINEAR_MM_PER_STEPPER_STEP = 0.1885
-
-INTERSTEP_DELAY_MS = 8
-
-# TODO
-#DEFAULT_FEED_RATE_MM_PER_MIN = 400
-
-STEPPER_NOT_ENABLE_PIN = Pin(0, Pin.OUT)
-STEPPER_NOT_ENABLE_PIN.value(1)
-
-LEFT_STEPPER_STEP_PIN = Pin(4, Pin.OUT)
-LEFT_STEPPER_STEP_PIN.value(0)
-
-LEFT_STEPPER_DIR_PIN = Pin(2, Pin.OUT)
-LEFT_STEPPER_DIR_PIN.value(1)
-
-RIGHT_STEPPER_STEP_PIN = Pin(15, Pin.OUT)
-RIGHT_STEPPER_STEP_PIN.value(0)
-
-RIGHT_STEPPER_DIR_PIN = Pin(13, Pin.OUT)
-RIGHT_STEPPER_DIR_PIN.value(1)
-
-enable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(0)
-disable_steppers = lambda: STEPPER_NOT_ENABLE_PIN.value(1)
-
-
-
-def pulse_step_pin(step_pin):
-    # Stepper motor has a step angle of 1.8 degrees (200 steps / revolution)
-    step_pin.value(1)
-    sleep_us(1)
-    step_pin.value(0)
-    sleep_us(1)
-
-
-def step(stepper, direction):
-    """Single-step a motor in a direction.
-    """
-    if stepper == LEFT_STEPPER:
-        if direction == DIR_RETRACT:
-            if state.left_leg_length <= MIN_LEFT_LEG_LENGTH_MM:
-                return False
-            state.left_leg_length -= LINEAR_MM_PER_STEPPER_STEP
-        elif direction == DIR_EXTEND:
-            if state.left_leg_length >= MAX_LEFT_LEG_LENGTH_MM:
-                return False
-            state.left_leg_length += LINEAR_MM_PER_STEPPER_STEP
-        step_pin = LEFT_STEPPER_STEP_PIN
-        LEFT_STEPPER_DIR_PIN(0 if direction == DIR_RETRACT else 1)
-    else:
-        if direction == DIR_RETRACT:
-            if state.right_leg_length <= MIN_RIGHT_LEG_LENGTH_MM:
-                return False
-            state.right_leg_length -= LINEAR_MM_PER_STEPPER_STEP
-        elif direction == DIR_EXTEND:
-            if state.right_leg_length >= MAX_RIGHT_LEG_LENGTH_MM:
-                return False
-            state.right_leg_length += LINEAR_MM_PER_STEPPER_STEP
-        step_pin = RIGHT_STEPPER_STEP_PIN
-        RIGHT_STEPPER_DIR_PIN(0 if direction == DIR_EXTEND else 1)
-
-    pulse_step_pin(step_pin)
-    return True
-
-
-def move_xy(x, y):
-    if x > MAX_X or y > MAX_Y:
-        raise OutOfBounds('x,y max is {},{}, got {},{}'.format(
-            MAX_X, MAX_Y, x, y))
-
-    if x == state.x and y == state.y:
-        # Nothing to do.
-        return
-
-    # Calculate the new leg lengths and delta from the current.
-    new_left_leg_length, new_right_leg_length = calc_legs(x, y)
-    left_leg_length_delta = new_left_leg_length - state.left_leg_length
-    right_leg_length_delta = new_right_leg_length - state.right_leg_length
-
-    # Calculate the number of steps for each motor.
-    num_left_steps = math.floor(
-        abs(left_leg_length_delta / LINEAR_MM_PER_STEPPER_STEP)
-    )
-    num_right_steps = math.floor(
-        abs(right_leg_length_delta / LINEAR_MM_PER_STEPPER_STEP)
-    )
-
-    if num_left_steps == 0 and num_right_steps == 0:
-        # All deltas are smaller than a single step.
-        return
-
-    # Scale the length delta of each belt over the duration of the move.
-    max_num_steps_delta = max(num_left_steps, num_right_steps)
-    left_leg_acc_step_size = num_left_steps / max_num_steps_delta
-    right_leg_acc_step_size = num_right_steps / max_num_steps_delta
-    left_leg_acc = 0
-    right_leg_acc = 0
-
-    left_steps_remaining = num_left_steps
-    right_steps_remaining = num_right_steps
-    enable_steppers()
-    while left_steps_remaining or right_steps_remaining:
-        if left_steps_remaining:
-            last_left_leg_acc = left_leg_acc
-            left_leg_acc += left_leg_acc_step_size
-            if math.floor(left_leg_acc) != math.floor(last_left_leg_acc):
-                step(LEFT_STEPPER,
-                     DIR_RETRACT if left_leg_length_delta < 0 else DIR_EXTEND)
-                left_steps_remaining -= 1
-
-        if right_steps_remaining:
-            last_right_leg_acc = right_leg_acc
-            right_leg_acc += right_leg_acc_step_size
-            if math.floor(right_leg_acc) != math.floor(last_right_leg_acc):
-                step(RIGHT_STEPPER,
-                     DIR_RETRACT if right_leg_length_delta < 0 else DIR_EXTEND)
-                right_steps_remaining -= 1
-
-        sleep_ms(INTERSTEP_DELAY_MS)
-
-    disable_steppers()
-    # Update the global state.
-    state.x = x
-    state.y = y
-
-
-def move_xys(points):
-    """Move along a sequence of points.
-    """
-    for x, y in points:
-        move_xy(x, y)
 
 
 ###############################################################################
@@ -613,12 +608,14 @@ def move_xys(points):
 ###############################################################################
 
 @motion_operation
-def draw_text(text, char_height, char_spacing=None, word_spacing=None,
+def draw_text(weezel, text, char_height, char_spacing=None, word_spacing=None,
               x_offset=None, y_offset=None):
     """
     """
     # TODO: check whether plotting text will exceed width before starting
     # TODO: add line wrapping
+
+    weezel.z_axis.drop()
 
     # If not specified, set char_spacing and word_spacing relative to
     # char_height.
@@ -629,9 +626,9 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
 
     # Use the current x/y position if unspecified.
     if x_offset is None:
-        x_offset = state.x
+        x_offset = weezel.x
     if y_offset is None:
-        y_offset = state.y
+        y_offset = weezel.y
 
     # Iterate through the characters in text, drawing each and incrementing the
     # x_offset.
@@ -639,7 +636,7 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
         # Handle SPACE and unsupported chars by advancing the x position by
         # word_spacing number of steps.
         if char == ' ' or char not in CHARS:
-            move_xy(state.x + word_spacing, state.y)
+            weezel.move_xy(weezel.x + word_spacing, weezel.y)
             x_offset += word_spacing
             continue
 
@@ -664,9 +661,13 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
         # Apply offset.
         points = [(x + x_offset, y + y_offset) for x, y in points]
 
-        move_xys(points)
+        for point in points:
+            x, y = point
+            weezel.move_xy(x, y)
 
         x_offset += next_x_offset
+
+    weezel.z_axis.lift()
 
 
 ###############################################################################
@@ -674,7 +675,7 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
 ###############################################################################
 
 @motion_operation
-def execute_gcode(fh):
+def execute_gcode(weezel, fh):
     class UNITS:
         INCHES = 0
         MILLIMETERS = 1
@@ -685,8 +686,6 @@ def execute_gcode(fh):
 
     units = None
     mode = None
-
-    inch_to_mm = lambda x: (x * 25.4) if x is not None else None
 
     def _assert_ready_to_move():
         if units is None or mode is None:
@@ -702,22 +701,22 @@ def execute_gcode(fh):
             x, y, z = map(inch_to_mm, (x, y, z))
 
         if x is None:
-            x = state.x
+            x = weezel.x
         elif mode == MODES.INCREMENTAL:
-            x += state.x
+            x += weezel.x
 
         if y is None:
-            y = state.y
+            y = weezel.y
         else:
             # Invert the specified Y to match our orientation.
             y = -y
             if mode == MODES.INCREMENTAL:
-                y += state.y
+                y += weezel.y
 
         if z is None:
-            z = state.z
+            z = weezel.z
         elif mode == MODES.INCREMENTAL:
-            z += state.z
+            z += weezel.z
 
         return x, y, z
 
@@ -739,188 +738,254 @@ def execute_gcode(fh):
         elif command == gcode.COMMANDS.RAPID_POSITIONING:
             _assert_ready_to_move()
             x, y, _ = calc_xyz_from_params(params)
-            pre_rapid_state.z = state.z
-            if state.z < 0:
+            pre_rapid_weezel.z = weezel.z
+            if weezel.z < 0:
                 # Raise the z-axis before moving.
-                move_z(0)
-            move_xy(x, y)
+                weezel.move_z(0)
+            weezel.move_xy(x, y)
             # Restore the pre-move z-axis position.
-            set_z_axis_position(pre_rapid_state.z)
+            set_z_axis_position(pre_rapid_weezel.z)
 
         elif command == gcode.COMMANDS.LINEAR_INTERPOLATION:
             _assert_ready_to_move()
             x, y, z = calc_xyz_from_params(params)
-            move_z(z)
-            move_xy(x, y)
+            weezel.move_z(z)
+            weezel.move_xy(x, y)
 
         # Ignore all other commands
-
-
-###############################################################################
-# Initialize the global state object
-###############################################################################
-
-state = State().restore()
-
-# Adjust the z-axis to match the state.
-move_z(state.z)
 
 
 ###############################################################################
 # Route Handlers
 ###############################################################################
 
-@route('/_reset', methods=(GET, POST))
-def _reset(request):
-    """Reset the device.
-    """
-    # Manually send the response prior to calling machine.reset
-    send(request.connection, _200())
-    machine.reset()
+def attach_routes(weezel):
+
+    @route('/_reset', methods=(GET, POST))
+    def _reset(request):
+        """Reset the device.
+        """
+        # Manually send the response prior to calling machine.reset
+        send(request.connection, _200())
+        machine.reset()
 
 
-@route('/status', methods=(GET,))
-@as_json
-def _status(request):
-    data = {
-        'state': state.__dict__,
-        'constants': {
-            'UPPER_BASE_LENGTH_MM': UPPER_BASE_LENGTH_MM,
-            'LOWER_BASE_LENGTH_MM': LOWER_BASE_LENGTH_MM,
-            'SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM':
-              SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM,
-            'SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM':
-              SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM,
-            'MIN_LEFT_LEG_LENGTH_MM': MIN_LEFT_LEG_LENGTH_MM,
-            'MIN_RIGHT_LEG_LENGTH_MM': MIN_RIGHT_LEG_LENGTH_MM,
-            'MAX_LEFT_LEG_LENGTH_MM': MAX_LEFT_LEG_LENGTH_MM,
-            'MAX_RIGHT_LEG_LENGTH_MM': MAX_RIGHT_LEG_LENGTH_MM,
-            'LINEAR_MM_PER_STEPPER_STEP': LINEAR_MM_PER_STEPPER_STEP,
-            'MAX_X': MAX_X,
-            'MAX_Y': MAX_Y,
+    @route('/state', methods=(GET,))
+    @as_json
+    def _state(request):
+        data = {
+            'weezel': {
+                k: getattr(weezel, k) for k in (
+                    'x',
+                    'y',
+                    'z',
+                    'left_leg_length',
+                    'right_leg_length',
+                )
+            }
         }
-    }
-    return _200(body=data)
+        return _200(body=data)
 
 
-@route('/', methods=(GET,))
-def index(request):
-    return default_http_endpoints._fs_GET('/public/index.html')
+    @route('/constants', methods=(GET,))
+    @as_json
+    def _constants(request):
+        data = {
+            'weezel': {
+                k: getattr(weezel, k) for k in (
+                    'HOME_X',
+                    'HOME_Y',
+                    'HOME_Z',
+                    'UPPER_BASE_LENGTH_MM',
+                    'LOWER_BASE_LENGTH_MM',
+                    'SLED_BELT_CATCH_IMPLEMENT_X_OFFSET_MM',
+                    'SLED_BELT_CATCH_IMPLEMENT_Y_OFFSET_MM',
+                    'MAX_X',
+                    'MAX_Y',
+                    'INTERSTEP_DELAY_MS',
+                    'UPPER_BASE_ENDPOINT_FRAME_VERTICAL_OFFSET_MM',
+                    'UPPER_BASE_ENDPOINT_FRAME_HORIZONTAL_OFFSET_MM',
+                    'EASEL_FRAME_BEAM_WIDTH_MM',
+                    'SLED_EDGE_IMPLEMENT_TOP_OFFSET_MM',
+                    'SLED_EDGE_IMPLEMENT_HORIZONTAL_OFFSET_MM',
+                    'TOP_KEEPOUT_MM',
+                    'SIDE_KEEPOUT_MM',
+                )
+            },
+            'left_stepper_motor_assembly': {
+                k: getattr(weezel.left_stepper_motor_assembly, k) for k in (
+                    'STEPS_PER_REVOLUTION',
+                    'TIMING_PULLEY_BELT_MATING_SURFACE_DIAMETER_MM',
+                    'TIMING_PULLEY_BELT_MATING_SURFACE_CURCUMFERENCE_MM',
+                    'MM_PER_STEP',
+                )
+            },
+            'right_stepper_motor_assembly': {
+                k: getattr(weezel.left_stepper_motor_assembly, k) for k in (
+                    'STEPS_PER_REVOLUTION',
+                    'TIMING_PULLEY_BELT_MATING_SURFACE_DIAMETER_MM',
+                    'TIMING_PULLEY_BELT_MATING_SURFACE_CURCUMFERENCE_MM',
+                    'MM_PER_STEP',
+                )
+            },
+            'z_axis': {
+                k: getattr(weezel.z_axis, k) for k in (
+                    'LIFTED_POSITION_DEGREES',
+                    'DROPPED_POSITION_DEGREES',
+                    'PULSE_PERIOD_MS',
+                    'MIN_ROTATION_DEGREES',
+                    'MAX_ROTATION_DEGREES',
+                    'MIN_ROTATION_PULSE_WIDTH_MS',
+                    'MAX_ROTATION_PULSE_WIDTH_MS',
+                    'PULSE_WIDTH_MS_PER_ROTATION_DEGREE',
+                )
+            }
+        }
+        return _200(body=data)
 
 
-@route('/demo', methods=(GET,))
-def _demo(request):
-    draw_text('WEEZEL', char_height=64, char_spacing=16, x_offset=0,
-              y_offset=MAX_Y / 2 - 64)
-    return _200()
+    @route('/', methods=(GET,))
+    def index(request):
+        return default_http_endpoints._fs_GET('/public/index.html')
 
 
-@route('/trace_perimeter', methods=(GET,))
-def _trace_perimeter(request):
-    for x, y in (
-            (0, 0),
-            (0, MAX_Y),
-            (MAX_X, MAX_Y),
-            (MAX_X, 0),
-            (0, 0),
-    ):
-        move_xy(x, y)
-    return _200()
+    @route('/demo', methods=(GET,))
+    def _demo(request):
+        draw_text(weezel, 'WEEZEL', char_height=64, char_spacing=16,
+                  x_offset=0, y_offset=MAX_Y / 2 - 64)
+        return _200()
 
 
-@route('/write', methods=(GET,), query_param_parser_map={
-    'text': as_type(str),
-    'char_height': as_with_default(as_type(float), 10),
-    'char_spacing': as_with_default(as_type(int), 10),
-    'word_spacing': as_with_default(as_type(int), 40),
-    'x_offset': as_maybe(as_type(int)),
-    'y_offset': as_maybe(as_type(int)),
-})
-def _write(request, text, char_height, char_spacing, word_spacing, x_offset,
-           y_offset):
-    draw_text(text, char_height, char_spacing, word_spacing, x_offset,
-              y_offset)
-    return _200()
+    @route('/trace_perimeter', methods=(GET,))
+    def _trace_perimeter(request):
+        for x, y in (
+                (0, 0),
+                (0, weezel.MAX_Y),
+                (weezel.MAX_X, weezel.MAX_Y),
+                (weezel.MAX_X, 0),
+                (0, 0),
+        ):
+            weezel.move_xy(x, y)
+        return _200()
 
 
-@route('/move', methods=(GET,), query_param_parser_map={
-    'x': as_maybe(as_type(int)),
-    'y': as_maybe(as_type(int)),
-    'z': as_maybe(as_type(int)),
-})
-def _move(request, x, y, z):
-    if x is None:
-        x = state.x
-    if y is None:
-        y = state.y
-    if z is None:
-        z = state.z
-    move_xy(x, y)
-    move_z(z)
-    return _200()
+    @route('/write', methods=(GET,), query_param_parser_map={
+        'text': as_type(str),
+        'char_height': as_with_default(as_type(float), 10),
+        'char_spacing': as_with_default(as_type(int), 10),
+        'word_spacing': as_with_default(as_type(int), 40),
+        'x_offset': as_maybe(as_type(int)),
+        'y_offset': as_maybe(as_type(int)),
+       })
+    def _write(request, text, char_height, char_spacing, word_spacing,
+               x_offset, y_offset):
+        draw_text(weezel, text, char_height, char_spacing, word_spacing,
+                  x_offset, y_offset)
+        return _200()
 
 
-_draw_dq = deque((), 512)
-@route('/draw', methods=(GET,))
-@as_websocket
-def _draw(request, ws):
-    def callback(timer):
-        global _draw_dq
-        payload_len = ws.read(1)
-        if payload_len is not None:
-            x, y = map(int, json.loads(ws.read(int(payload_len))))
-            _draw_dq.append((x, y))
-
-        if not motion_operation and _draw_dq:
-            x, y = _draw_dq.popleft()
-            move_xy(x, y)
-
-        timer.init(period=20, mode=Timer.ONE_SHOT, callback=callback)
-    callback(Timer(-1))
+    @route('/move', methods=(GET,), query_param_parser_map={
+        'x': as_maybe(as_type(int)),
+        'y': as_maybe(as_type(int)),
+        'z': as_maybe(as_type(int)),
+       })
+    def _move(request, x, y, z):
+        if x is None:
+            x = weezel.x
+        if y is None:
+            y = weezel.y
+        if z is None:
+            z = weezel.z
+        weezel.move_z(z)
+        weezel.move_xy(x, y)
+        return _200()
 
 
-@route('/home', methods=(GET,))
-def _home(request):
-    """Force it to the home position by setting state.x and state.y to their max
-    values, moving to point 0,0, and then back up 20 steps to reach the usable
-    region.
-    """
-    move_xy(0, 0)
-    return _200()
+    _draw_dq = deque((), 512)
+    @route('/draw', methods=(GET,))
+    @as_websocket
+    def _draw(request, ws):
+        def callback(timer):
+            nonlocal _draw_dq
+            # Expect the first 2 bytes to comprise the payload length.
+            payload_len = ws.read(2)
+            if payload_len is not None:
+                data = json.loads(ws.read(int(payload_len)))
+                _draw_dq.append((
+                    data['event'],
+                    int(data['x']),
+                    int(data['y'])
+                ))
+
+            if not weezel.in_motion and _draw_dq:
+                event, x, y = _draw_dq.popleft()
+                if event == 'draw':
+                    weezel.z_axis.drop()
+                else:
+                    weezel.z_axis.lift()
+                weezel.move_xy(x, y)
+
+            timer.init(period=20, mode=Timer.ONE_SHOT, callback=callback)
+        callback(Timer(-1))
 
 
-@route('/reset_home', methods=(GET,))
-def _reset_home(request):
-    state.x, state.y, state.z = HOME_X, HOME_Y, HOME_Z
-    move_z(state.z)
-    state.left_leg_length, state.right_leg_length = calc_legs(state.x, state.y)
-    return _200()
+    @route('/home', methods=(GET,))
+    def _home(request):
+        weezel.move_xy(0, 0)
+        return _200()
 
 
-@route('/move_to_center', methods=(GET,))
-def _move_to_center(request):
-    """Move to the center.
-    """
-    move_xy(MAX_X / 2, MAX_Y / 2)
-    return _200()
+    @route('/reset_home', methods=(GET,))
+    def _reset_home(request):
+        weezel.x = weelzel.HOME_X
+        weezel.y = weelzel.HOME_Y
+        weezel.z = weelzel.HOME_Z
+        weezel.move_z(weezel.z)
+        weezel.left_leg_length, weezel.right_leg_length = \
+            weezel.calc_legs(weezel.x, weezel.y)
+        return _200()
 
 
-@route('/execute_gcode', methods=(PUT,))
-def _execute_gcode(request):
-    # Upload the file to a temporary location.
-    file_path = '/tmp/gcode.{}'.format(time.time())
-    default_http_endpoints._fs_PUT(file_path, request)
-    try:
-        with open(file_path, 'r') as fh:
-            execute_gcode(fh)
-    finally:
-        # Delete the temporary file.
-        os.remove(file_path)
-    move_xy(0, 0)
-    return _200()
+    @route('/move_to_center', methods=(GET,))
+    def _move_to_center(request):
+        """Move to the center.
+        """
+        weezel.move_xy(weezel.MAX_X / 2, weezel.MAX_Y / 2)
+        return _200()
+
+
+    @route('/execute_gcode', methods=(PUT,))
+    def _execute_gcode(request):
+        # Upload the file to a temporary location.
+        file_path = '/tmp/gcode.{}'.format(time.time())
+        default_http_endpoints._fs_PUT(file_path, request)
+        try:
+            with open(file_path, 'r') as fh:
+                execute_gcode(weezel, fh)
+        finally:
+            # Delete the temporary file.
+            os.remove(file_path)
+        weezel.move_xy(0, 0)
+        return _200()
 
 
 if __name__ == '__main__':
     ensure_erase_tmp_dir()
     ensure_data_dir()
+
+
+    weezel = Weezel(
+        left_stepper_motor_assembly=StepperMotorAssembly(
+            not_enable_pin_num=0,
+            dir_pin_num=2,
+            step_pin_num=4,
+        ),
+        right_stepper_motor_assembly=StepperMotorAssembly(
+            not_enable_pin_num=0,
+            dir_pin_num=13,
+            step_pin_num=15,
+        ),
+        z_axis=ZAxis(pin_num=21)
+    )
+    attach_routes(weezel)
     serve()
