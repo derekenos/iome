@@ -410,7 +410,6 @@ set_servo_degrees = \
     lambda degrees: SERVO_PWM.duty(servo_degrees_to_duty(degrees))
 
 
-@motion_operation
 def move_z(value):
     """Move the z-axis to the raised or lowered position based on whether the
     specified value is >= 0.
@@ -541,7 +540,6 @@ def step(stepper, direction):
     return True
 
 
-@motion_operation
 def move_xy(x, y):
     if x > MAX_X or y > MAX_Y:
         raise OutOfBounds('x,y max is {},{}, got {},{}'.format(
@@ -614,6 +612,7 @@ def move_xys(points):
 # Text Drawing Functions
 ###############################################################################
 
+@motion_operation
 def draw_text(text, char_height, char_spacing=None, word_spacing=None,
               x_offset=None, y_offset=None):
     """
@@ -674,6 +673,7 @@ def draw_text(text, char_height, char_spacing=None, word_spacing=None,
 # Gcode Helpers
 ###############################################################################
 
+@motion_operation
 def execute_gcode(fh):
     class UNITS:
         INCHES = 0
