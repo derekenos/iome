@@ -16,3 +16,7 @@
 [submodule "appliances/weezel/micropython-docker"]
 	path = appliances/weezel/micropython-docker
 	url = https://github.com/derekenos/micropython-docker.git
+[submodule "appliances/weezel/filesystem/lib/femtoweb"]
+	path = appliances/weezel/filesystem/lib/femtoweb
+	url = https://github.com/derekenos/femtoweb.git
+	branch = micropython
